@@ -3,7 +3,7 @@ import yaml
 
 
 def generate_compose(output_file, n_clients):
-    # 1. Create the base compose configuration by hand
+    # Armar el compose a mano
     compose = {
         "name": "tp0",
         "services": {
@@ -23,7 +23,7 @@ def generate_compose(output_file, n_clients):
         },
     }
 
-    # 2. Add N clientes dinámicamente
+    # 2. Agregar N clientes dinámicamente
     for i in range(1, n_clients + 1):
         compose["services"][f"client{i}"] = {
             "container_name": f"client{i}",
