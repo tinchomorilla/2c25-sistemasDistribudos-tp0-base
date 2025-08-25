@@ -7,7 +7,7 @@ def generate_compose(output_file, n_clients):
     with open("docker-compose-dev.yaml") as f:
         compose = yaml.safe_load(f)
 
-    # 2. Eliminar el client1 que ya viene fijo 
+    # 2. Eliminar el client1 que ya viene fijo
     compose["services"].pop("client", None)
 
     # 3. Agregar N clientes dinámicamente
@@ -17,6 +17,7 @@ def generate_compose(output_file, n_clients):
             "image": "client:latest",
             "entrypoint": "/client",
             "environment": [f"CLI_ID={i}", "CLI_LOG_LEVEL=DEBUG"],
+            "volumes": ["./client/config.yaml:/config.yaml"],
             "networks": ["testing_net"],
             "depends_on": ["server"],
         }
