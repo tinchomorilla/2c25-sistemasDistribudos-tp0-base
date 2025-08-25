@@ -29,7 +29,7 @@ def generate_compose(output_file, n_clients):
             "container_name": f"client{i}",
             "image": "client:latest",
             "entrypoint": "/client",
-            "environment": [f"CLI_ID={i}", "CLI_LOG_LEVEL=DEBUG"],
+            "environment": [f"CLI_ID={i}"], 
             "volumes": ["./client/config.yaml:/config.yaml"],
             "networks": ["testing_net"],
             "depends_on": ["server"],
