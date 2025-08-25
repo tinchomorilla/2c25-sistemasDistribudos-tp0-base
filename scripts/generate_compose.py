@@ -11,7 +11,7 @@ def generate_compose(output_file, n_clients):
                 "container_name": "server",
                 "image": "server:latest",
                 "entrypoint": "python3 /main.py",
-                "environment": ["PYTHONUNBUFFERED=1", "LOGGING_LEVEL=DEBUG"],
+                "environment": ["PYTHONUNBUFFERED=1"], 
                 "volumes": ["./server/config.ini:/config.ini"],
                 "networks": ["testing_net"],
             }
@@ -29,7 +29,7 @@ def generate_compose(output_file, n_clients):
             "container_name": f"client{i}",
             "image": "client:latest",
             "entrypoint": "/client",
-            "environment": [f"CLI_ID={i}"], 
+            "environment": [f"CLI_ID={i}"],
             "volumes": ["./client/config.yaml:/config.yaml"],
             "networks": ["testing_net"],
             "depends_on": ["server"],
