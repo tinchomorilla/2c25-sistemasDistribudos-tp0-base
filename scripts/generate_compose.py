@@ -3,14 +3,27 @@ import yaml
 
 
 def generate_compose(output_file, n_clients):
-    # 1. Leer el archivo base
-    with open("docker-compose-dev.yaml") as f:
-        compose = yaml.safe_load(f)
+    # 1. Create the base compose configuration by hand
+    compose = {
+        "name": "tp0",
+        "services": {
+            "server": {
+                "container_name": "server",
+                "image": "server:latest",
+                "entrypoint": "python3 /main.py",
+                "environment": ["PYTHONUNBUFFERED=1", "LOGGING_LEVEL=DEBUG"],
+                "volumes": ["./server/config.ini:/config.ini"],
+                "networks": ["testing_net"],
+            }
+        },
+        "networks": {
+            "testing_net": {
+                "ipam": {"driver": "default", "config": [{"subnet": "172.25.125.0/24"}]}
+            }
+        },
+    }
 
-    # 2. Eliminar el client1 que ya viene fijo
-    compose["services"].pop("client", None)
-
-    # 3. Agregar N clientes dinámicamente
+    # 2. Add N clientes dinámicamente
     for i in range(1, n_clients + 1):
         compose["services"][f"client{i}"] = {
             "container_name": f"client{i}",
@@ -22,7 +35,7 @@ def generate_compose(output_file, n_clients):
             "depends_on": ["server"],
         }
 
-    # 4. Guardar el nuevo compose en archivo de salida
+    # 3. Guardar el nuevo compose en archivo de salida
     with open(output_file, "w") as f:
         yaml.dump(compose, f, sort_keys=False)
 
