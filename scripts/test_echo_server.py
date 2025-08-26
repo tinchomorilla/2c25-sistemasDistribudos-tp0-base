@@ -29,13 +29,24 @@ def test_echo_server():
         # Run the command and capture output
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
 
-        # Check if the response matches the sent message
-        if result.returncode == 0 and test_message in result.stdout:
-            print("action: test_echo_server | result: success")
-            return True
-        else:
+        # Check if the command executed successfully
+        if result.returncode != 0:
             print("action: test_echo_server | result: fail")
             return False
+
+        # Check if we received our test message back
+        if test_message not in result.stdout:
+            print("action: test_echo_server | result: fail")
+            return False
+
+        # Check if the response contains an error (unhealthy server)
+        if "error reading data:" in result.stdout:
+            print("action: test_echo_server | result: fail")
+            return True
+
+        # Server echoed back our message correctly (healthy server)
+        print("action: test_echo_server | result: success")
+        return True
 
     except Exception as e:
         print("action: test_echo_server | result: fail")
