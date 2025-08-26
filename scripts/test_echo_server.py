@@ -7,18 +7,20 @@ import time
 
 def test_echo_server():
     """
-    Test the echo server using netcat within the Docker network
+    Test the echo server using netcat from a temporary container
     """
     try:
         # Test message to send
         test_message = "Hello Echo Server!"
 
-        # Use docker exec to run netcat inside the server container
-        # Docker DNS automatically resolves "server" to the container's IP
+        # Create a temporary container with netcat, connect to testing_net, and test the server
         cmd = [
             "docker",
-            "exec",
-            "server",
+            "run",
+            "--rm",
+            "--network",
+            "tp0_testing_net",  # Connect to the same network as the server
+            "busybox:latest",
             "sh",
             "-c",
             f"echo '{test_message}' | nc server 12345",
