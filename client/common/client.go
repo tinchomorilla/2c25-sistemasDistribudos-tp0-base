@@ -1,8 +1,6 @@
 package common
 
 import (
-	"bufio"
-	"fmt"
 	"net"
 	"os"
 	"os/signal"
@@ -20,11 +18,11 @@ type ClientConfig struct {
 	ServerAddress string
 	LoopAmount    int
 	LoopPeriod    time.Duration
-	Nombre		string
-	Apellido	string
-	Documento	string
-	Nacimiento	string
-	Numero		int
+	Nombre        string
+	Apellido      string
+	Documento     string
+	Nacimiento    string
+	Numero        int
 }
 
 // Client Entity that encapsulates how
@@ -70,7 +68,7 @@ func (c *Client) createClientSocket() error {
 	return nil
 }
 
-// StartClientLoop Send messages until threshold or shutdown signal
+// StartClientLoop Send bet messages until threshold or shutdown signal
 func (c *Client) StartClientLoop() {
 	for msgID := 1; msgID <= c.config.LoopAmount; msgID++ {
 		if c.shutdownRequested {
@@ -81,28 +79,54 @@ func (c *Client) StartClientLoop() {
 			return
 		}
 
-		// Send message
-		fmt.Fprintf(c.conn, "[CLIENT %v] Message N°%v\n", c.config.ID, msgID)
+		// Create bet message
+		betMessage := NewBetMessage(
+			c.config.Nombre,
+			c.config.Apellido,
+			c.config.Documento,
+			c.config.Nacimiento,
+			c.config.Numero,
+		)
 
-		// Read echo
-		msg, err := bufio.NewReader(c.conn).ReadString('\n')
-		c.conn.Close()
-
-		if err != nil {
-			if c.shutdownRequested {
-				break
-			}
-			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
+		// Send bet message
+		if err := SendMessage(c.conn, betMessage); err != nil {
+			log.Errorf("action: send_bet | result: fail | client_id: %v | error: %v",
 				c.config.ID,
 				err,
 			)
+			c.conn.Close()
 			return
 		}
 
-		log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
-			c.config.ID,
-			msg,
-		)
+		// Wait for server response
+		var response ResponseMessage
+		if err := RecvMessage(c.conn, &response); err != nil {
+			if c.shutdownRequested {
+				break
+			}
+			log.Errorf("action: receive_response | result: fail | client_id: %v | error: %v",
+				c.config.ID,
+				err,
+			)
+			c.conn.Close()
+			return
+		}
+
+		c.conn.Close()
+
+		// Log result based on server response
+		if response.Success {
+			log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
+				c.config.Documento,
+				c.config.Numero,
+			)
+		} else {
+			log.Errorf("action: apuesta_enviada | result: fail | dni: %v | numero: %v | error: %v",
+				c.config.Documento,
+				c.config.Numero,
+				response.Error,
+			)
+		}
 
 		// Wait before next message
 		time.Sleep(c.config.LoopPeriod)
