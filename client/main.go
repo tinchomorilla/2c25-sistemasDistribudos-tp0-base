@@ -32,6 +32,11 @@ func InitConfig() (*viper.Viper, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	// Add env variables supported
+	v.BindEnv("nombre")
+	v.BindEnv("apellido")
+	v.BindEnv("documento")
+	v.BindEnv("nacimiento")
+	v.BindEnv("numero")
 	v.BindEnv("id")
 	v.BindEnv("server", "address")
 	v.BindEnv("loop", "period")
@@ -108,7 +113,13 @@ func main() {
 		ID:            v.GetString("id"),
 		LoopAmount:    v.GetInt("loop.amount"),
 		LoopPeriod:    v.GetDuration("loop.period"),
+		Nombre:        v.GetString("nombre"),
+		Apellido:      v.GetString("apellido"),
+		Documento:     v.GetString("documento"),
+		Nacimiento:    v.GetString("nacimiento"),
+		Numero:        v.GetInt("numero"),
 	}
+
 
 	client := common.NewClient(clientConfig)
 	client.StartClientLoop()
