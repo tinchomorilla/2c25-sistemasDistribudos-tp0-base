@@ -20,6 +20,11 @@ type ClientConfig struct {
 	ServerAddress string
 	LoopAmount    int
 	LoopPeriod    time.Duration
+	Nombre		string
+	Apellido	string
+	Documento	string
+	Nacimiento	string
+	Numero		int
 }
 
 // Client Entity that encapsulates how
