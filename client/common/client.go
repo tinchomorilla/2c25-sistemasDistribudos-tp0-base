@@ -187,6 +187,11 @@ func (c *Client) StartClientWithCSV() {
 		c.sendBatch(currentBatch, true) // EOF = true for the last batch
 	}
 
+	// After sending all bets with EOF, request winners
+	if !c.shutdownRequested {
+		c.requestWinners()
+	}
+
 	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
 }
 
@@ -207,28 +212,79 @@ func (c *Client) sendBatch(bets []BetMessage, eof bool) {
 		return
 	}
 
+}
+
+// requestWinners requests the list of winners from the server
+func (c *Client) requestWinners() {
+	log.Infof("action: request_winners | result: in_progress | client_id: %v | msg: waiting for lottery", c.config.ID)
+
+	const maxRetries = 10
+	const retryDelay = 5 * time.Second
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if c.shutdownRequested {
+			return
+		}
+
+		log.Infof("action: request_winners | attempt: %d | client_id: %v", attempt, c.config.ID)
+		time.Sleep(retryDelay)
+
+		// Create connection for this attempt (server closes it after each request)
+		if err := c.createClientSocket(); err != nil {
+			log.Errorf("action: request_winners | result: fail | attempt: %d | client_id: %v | error: %v",
+				attempt, c.config.ID, err)
+			continue
+		}
+
+		// Ensure connection is closed when we're done with this attempt
+		success := c.tryGetWinners(attempt)
+		c.conn.Close()
+
+		if success {
+			return // Successfully got winners
+		}
+
+		// If this was the last attempt, we've exhausted all retries
+		if attempt == maxRetries {
+			log.Errorf("action: consulta_ganadores | result: fail | max_attempts_reached")
+			return
+		}
+	}
+}
+
+// tryGetWinners attempts to get winners using the current connection
+func (c *Client) tryGetWinners(attempt int) bool {
+	// Create get winners message
+	winnersMessage := NewGetWinnersMessage(c.config.Agency)
+
+	// Send get winners message
+	if err := SendMessage(c.conn, winnersMessage); err != nil {
+		log.Errorf("action: request_winners | result: fail | attempt: %d | client_id: %v | error: %v",
+			attempt, c.config.ID, err)
+		return false
+	}
+
 	// Wait for server response
 	var response ResponseMessage
 	if err := RecvMessage(c.conn, &response); err != nil {
 		if c.shutdownRequested {
-			return
+			return false
 		}
-		log.Errorf("action: receive_response | result: fail | client_id: %v | error: %v",
-			c.config.ID, err)
-		return
+		log.Errorf("action: request_winners | result: fail | attempt: %d | client_id: %v | error: %v",
+			attempt, c.config.ID, err)
+		return false
 	}
 
-	// Log result based on server response
+	// Check server response
 	if response.Success {
-		if eof {
-			log.Infof("action: apuesta_enviada | result: success | batch_size: %v | eof: true",
-				len(bets))
-		} else {
-			log.Infof("action: apuesta_enviada | result: success | batch_size: %v",
-				len(bets))
-		}
+		// Success! Print amount of winners
+		log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d",
+			len(response.Winners))
+		return true
 	} else {
-		log.Errorf("action: apuesta_enviada | result: fail | batch_size: %v | error: %v",
-			len(bets), response.Error)
+		// Server returned an error (probably lottery not ready yet)
+		log.Infof("action: request_winners | result: retry | attempt: %d | client_id: %v | error: %v",
+			attempt, c.config.ID, response.Error)
+		return false
 	}
 }
