@@ -11,7 +11,7 @@ def generate_compose(output_file, n_clients):
                 "container_name": "server",
                 "image": "server:latest",
                 "entrypoint": "python3 /main.py",
-                "environment": ["PYTHONUNBUFFERED=1"],
+                "environment": ["PYTHONUNBUFFERED=1", f"EXPECTED_AGENCIES={n_clients}"],
                 "volumes": ["./server/config.ini:/config.ini"],
                 "networks": ["testing_net"],
             }
