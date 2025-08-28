@@ -32,6 +32,8 @@ func InitConfig() (*viper.Viper, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	// Add env variables supported
+	v.BindEnv("csv", "file") // For CLI_CSV_FILE
+	v.BindEnv("batch", "maxAmount")
 	v.BindEnv("nombre")
 	v.BindEnv("apellido")
 	v.BindEnv("documento")
@@ -109,18 +111,21 @@ func main() {
 	PrintConfig(v)
 
 	clientConfig := common.ClientConfig{
-		ServerAddress: v.GetString("server.address"),
-		ID:            v.GetString("id"),
-		LoopAmount:    v.GetInt("loop.amount"),
-		LoopPeriod:    v.GetDuration("loop.period"),
-		Nombre:        v.GetString("nombre"),
-		Apellido:      v.GetString("apellido"),
-		Documento:     v.GetString("documento"),
-		Nacimiento:    v.GetString("nacimiento"),
-		Numero:        v.GetInt("numero"),
+		ServerAddress:  v.GetString("server.address"),
+		ID:             v.GetString("id"),
+		LoopAmount:     v.GetInt("loop.amount"),
+		LoopPeriod:     v.GetDuration("loop.period"),
+		CSVFile:        v.GetString("csv.file"),
+		BatchMaxAmount: v.GetInt("batch.maxAmount"),
+		Nombre:     v.GetString("nombre"),
+		Apellido:   v.GetString("apellido"),
+		Documento:  v.GetString("documento"),
+		Nacimiento: v.GetString("nacimiento"),
+		Numero:     v.GetInt("numero"),
 	}
 
-
 	client := common.NewClient(clientConfig)
-	client.StartClientLoop()
+
+	client.StartClientWithCSV()
+	
 }
