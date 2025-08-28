@@ -5,6 +5,7 @@ BUFFER_SIZE = 4096
 
 # Message types
 MESSAGE_TYPE_BET = "bet"
+MESSAGE_TYPE_BATCH = "batch"
 MESSAGE_TYPE_RESPONSE = "response"
 
 
@@ -29,6 +30,22 @@ class BetMessage:
             nacimiento=data["nacimiento"],
             numero=data["numero"],
         )
+
+
+class BatchMessage:
+    """Represents multiple bets sent together"""
+
+    def __init__(self, agency, bets):
+        self.type = MESSAGE_TYPE_BATCH
+        self.agency = agency  # Agency number (1-5)
+        self.bets = bets  # List of BetMessage objects
+
+    @classmethod
+    def from_dict(cls, data):
+        """Create BatchMessage from dictionary"""
+        agency = data["agency"]
+        bets = [BetMessage.from_dict(bet_data) for bet_data in data["bets"]]
+        return cls(agency, bets)
 
 
 class ResponseMessage:
@@ -78,6 +95,14 @@ def recv_bet_message(sock: socket.socket) -> BetMessage:
     if data.get("type") != MESSAGE_TYPE_BET:
         raise ValueError(f"Expected bet message, got {data.get('type')}")
     return BetMessage.from_dict(data)
+
+
+def recv_batch_message(sock: socket.socket) -> BatchMessage:
+    """Receive and parse a batch message"""
+    data = recv_message(sock)
+    if data.get("type") != MESSAGE_TYPE_BATCH:
+        raise ValueError(f"Expected batch message, got {data.get('type')}")
+    return BatchMessage.from_dict(data)
 
 
 def send_response(sock: socket.socket, success: bool, error: str = None):
