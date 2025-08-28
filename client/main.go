@@ -110,13 +110,16 @@ func main() {
 		ID:             v.GetString("id"),
 		LoopAmount:     v.GetInt("loop.amount"),
 		LoopPeriod:     v.GetDuration("loop.period"),
-		CSVFile:        v.GetString("csv.file"),
 		BatchMaxAmount: v.GetInt("batch.maxAmount"),
-		Agency:         v.GetInt("id"),
+		Agency:         v.GetInt("id"), // Agency is same as client ID
 	}
+
+	// Set CSV file path from environment variable (set by docker-compose)
+	clientConfig.CSVFile = v.GetString("csv.file")
 
 	client := common.NewClient(clientConfig)
 
+	// Exercise 6: Always use CSV batch processing
 	client.StartClientWithCSV()
 
 }
