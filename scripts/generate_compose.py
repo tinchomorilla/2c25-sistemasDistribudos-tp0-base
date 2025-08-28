@@ -36,7 +36,7 @@ def generate_compose(output_file, n_clients):
             ],
             "volumes": [
                 "./client/config.yaml:/config.yaml",
-                f"./data/agency-{i}.csv:/agency-{i}.csv",
+                f"./.data/agency-{i}.csv:/agency-{i}.csv",
             ],
             "networks": ["testing_net"],
             "depends_on": ["server"],
