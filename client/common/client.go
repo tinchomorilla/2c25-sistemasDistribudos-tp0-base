@@ -1,9 +1,13 @@
 package common
 
 import (
+	"encoding/csv"
+	"encoding/json"
+	"io"
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -14,15 +18,13 @@ var log = logging.MustGetLogger("log")
 
 // ClientConfig Configuration used by the client
 type ClientConfig struct {
-	ID            string
-	ServerAddress string
-	LoopAmount    int
-	LoopPeriod    time.Duration
-	Nombre        string
-	Apellido      string
-	Documento     string
-	Nacimiento    string
-	Numero        int
+	ID             string
+	ServerAddress  string
+	LoopAmount     int
+	LoopPeriod     time.Duration
+	CSVFile        string 
+	BatchMaxAmount int    
+	Numero     int
 }
 
 // Client Entity that encapsulates how
@@ -54,6 +56,73 @@ func NewClient(config ClientConfig) *Client {
 	return client
 }
 
+// BetRecord represents a bet record from CSV
+type BetRecord struct {
+	Nombre     string
+	Apellido   string
+	Documento  string
+	Nacimiento string
+	Numero     int
+}
+
+// readBetsFromCSV reads bet records from a CSV file
+func (c *Client) readBetsFromCSV() ([]BetRecord, error) {
+	file, err := os.Open(c.config.CSVFile)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	var bets []BetRecord
+
+	for {
+
+		if c.shutdownRequested {
+			break
+		}
+
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		// Assuming CSV format: nombre,apellido,documento,nacimiento,numero
+		if len(record) != 5 {
+			continue // Skip malformed records
+		}
+
+		numero, err := strconv.Atoi(record[4])
+		if err != nil {
+			continue // Skip records with invalid numbers
+		}
+
+		bet := BetRecord{
+			Nombre:     record[0],
+			Apellido:   record[1],
+			Documento:  record[2],
+			Nacimiento: record[3],
+			Numero:     numero,
+		}
+		bets = append(bets, bet)
+	}
+
+	return bets, nil
+}
+
+// calculateMessageSize estimates the JSON size of a batch message
+func (c *Client) calculateMessageSize(bets []BetMessage) int {
+	batch := NewBatchMessage(bets)
+	data, err := json.Marshal(batch)
+	if err != nil {
+		return 0
+	}
+	return len(data)
+}
+
 // CreateClientSocket Initializes client socket
 func (c *Client) createClientSocket() error {
 	conn, err := net.Dial("tcp", c.config.ServerAddress)
@@ -68,69 +137,93 @@ func (c *Client) createClientSocket() error {
 	return nil
 }
 
-// StartClientLoop Send bet messages until threshold or shutdown signal
-func (c *Client) StartClientLoop() {
-	for msgID := 1; msgID <= c.config.LoopAmount; msgID++ {
+// StartClientLoopWithCSV reads bets from CSV and sends them in batches (Exercise 6)
+func (c *Client) StartClientWithCSV() {
+	// Read bets from CSV file
+	betsFromCSV, err := c.readBetsFromCSV()
+	if err != nil {
+		log.Errorf("action: read_csv | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return
+	}
+
+	// Convert CSV records to BetMessages and send in batches
+	var currentBatch []BetMessage
+	const MAX_BATCH_SIZE_BYTES = 8 * 1024 // 8kB limit
+
+	for _, betRecord := range betsFromCSV {
 		if c.shutdownRequested {
 			break
 		}
 
-		if err := c.createClientSocket(); err != nil {
-			return
+		// Create bet message from CSV record
+		betMsg := BetMessage{
+			Type:       MessageTypeBet,
+			Nombre:     betRecord.Nombre,
+			Apellido:   betRecord.Apellido,
+			Documento:  betRecord.Documento,
+			Nacimiento: betRecord.Nacimiento,
+			Numero:     betRecord.Numero,
 		}
 
-		// Create bet message
-		betMessage := NewBetMessage(
-			c.config.Nombre,
-			c.config.Apellido,
-			c.config.Documento,
-			c.config.Nacimiento,
-			c.config.Numero,
-		)
+		// Check if adding this bet would exceed size or count limits
+		testBatch := append(currentBatch, betMsg)
+		batchSize := c.calculateMessageSize(testBatch)
 
-		// Send bet message
-		if err := SendMessage(c.conn, betMessage); err != nil {
-			log.Errorf("action: send_bet | result: fail | client_id: %v | error: %v",
-				c.config.ID,
-				err,
-			)
-			c.conn.Close()
-			return
-		}
-
-		// Wait for server response
-		var response ResponseMessage
-		if err := RecvMessage(c.conn, &response); err != nil {
-			if c.shutdownRequested {
-				break
+		if len(currentBatch) >= c.config.BatchMaxAmount || batchSize > MAX_BATCH_SIZE_BYTES {
+			// Send current batch first
+			if len(currentBatch) > 0 {
+				c.sendBatch(currentBatch)
 			}
-			log.Errorf("action: receive_response | result: fail | client_id: %v | error: %v",
-				c.config.ID,
-				err,
-			)
-			c.conn.Close()
-			return
-		}
-
-		c.conn.Close()
-
-		// Log result based on server response
-		if response.Success {
-			log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
-				c.config.Documento,
-				c.config.Numero,
-			)
+			// Start new batch with current bet
+			currentBatch = []BetMessage{betMsg}
 		} else {
-			log.Errorf("action: apuesta_enviada | result: fail | dni: %v | numero: %v | error: %v",
-				c.config.Documento,
-				c.config.Numero,
-				response.Error,
-			)
+			// Add to current batch
+			currentBatch = testBatch
 		}
+	}
 
-		// Wait before next message
-		time.Sleep(c.config.LoopPeriod)
+	// Send remaining bets in the last batch
+	if len(currentBatch) > 0 && !c.shutdownRequested {
+		c.sendBatch(currentBatch)
 	}
 
 	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+}
+
+// sendBatch sends a batch of bets to the server
+func (c *Client) sendBatch(bets []BetMessage) {
+	if err := c.createClientSocket(); err != nil {
+		return
+	}
+	defer c.conn.Close()
+
+	// Create batch message
+	batchMessage := NewBatchMessage(bets)
+
+	// Send batch message
+	if err := SendMessage(c.conn, batchMessage); err != nil {
+		log.Errorf("action: send_batch | result: fail | client_id: %v | error: %v",
+			c.config.ID, err)
+		return
+	}
+
+	// Wait for server response
+	var response ResponseMessage
+	if err := RecvMessage(c.conn, &response); err != nil {
+		if c.shutdownRequested {
+			return
+		}
+		log.Errorf("action: receive_response | result: fail | client_id: %v | error: %v",
+			c.config.ID, err)
+		return
+	}
+
+	// Log result based on server response
+	if response.Success {
+		log.Infof("action: apuesta_enviada | result: success | batch_size: %v",
+			len(bets))
+	} else {
+		log.Errorf("action: apuesta_enviada | result: fail | batch_size: %v | error: %v",
+			len(bets), response.Error)
+	}
 }
