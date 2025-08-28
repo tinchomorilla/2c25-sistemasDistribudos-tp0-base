@@ -1,6 +1,7 @@
 import socket
 import logging
 import signal
+import os
 from .protocol import (
     read_packet_from,
     send_response,
@@ -26,6 +27,12 @@ class Server:
         )  # Track which agencies have finished sending bets
         self._lottery_done = False  # Flag to track if lottery has been performed
         self._winners_by_agency = {}  # Dict mapping agency_id -> list of winners DNIs
+
+        # Get expected number of agencies from environment variable
+        self._expected_agencies = int(os.environ.get("EXPECTED_AGENCIES", 5))
+        logging.info(
+            f"action: config | result: success | expected_agencies: {self._expected_agencies}"
+        )
 
         # Set up signal handler for graceful shutdown
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -140,8 +147,8 @@ class Server:
                 f"action: agency_finished | result: success | agency: {batch_message.agency} | total_finished: {len(self._finished_agencies)}"
             )
 
-            # Check if all 5 agencies have finished
-            if len(self._finished_agencies) == 5:
+            # Check if all expected agencies have finished
+            if len(self._finished_agencies) == self._expected_agencies:
                 self._perform_lottery()
 
     def _handle_get_winners_message(self, message, client_sock):
