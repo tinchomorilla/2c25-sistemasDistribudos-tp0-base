@@ -226,7 +226,7 @@ func (c *Client) requestWinners() {
 			return
 		}
 
-		log.Infof("action: request_winners | attempt: %d | client_id: %v", attempt, c.config.ID)
+		log.Infof("action: request_winners | result: in_progress | attempt: %d | client_id: %v", attempt, c.config.ID)
 		time.Sleep(retryDelay)
 
 		// Create connection for this attempt (server closes it after each request)
