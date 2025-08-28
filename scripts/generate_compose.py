@@ -32,7 +32,7 @@ def generate_compose(output_file, n_clients):
             "entrypoint": "/client",
             "environment": [
                 f"CLI_ID={i}",
-                f"CLI_CSV_FILE=/agency-{i}.csv",
+                f"CLI_CSV_FILE=.data/agency-{i}.csv",
             ],
             "volumes": [
                 "./client/config.yaml:/config.yaml",
