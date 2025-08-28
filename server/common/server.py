@@ -2,7 +2,12 @@ import socket
 import logging
 import signal
 import threading
-from .protocol import recv_bet_message, send_response
+from .protocol import (
+    read_packet_from,
+    send_response,
+    MESSAGE_TYPE_BET,
+    MESSAGE_TYPE_BATCH,
+)
 from .utils import Bet, store_bets
 
 
@@ -74,24 +79,9 @@ class Server:
         try:
             addr = client_sock.getpeername()
 
-            # Receive bet message from client
-            bet_message = recv_bet_message(client_sock)
+            message = read_packet_from(client_sock)
 
-            # Create Bet object from the received message
-            bet = Bet(
-                agency="1",
-                first_name=bet_message.nombre,
-                last_name=bet_message.apellido,
-                document=bet_message.documento,
-                birthdate=bet_message.nacimiento,
-                number=str(bet_message.numero),
-            )
-
-            store_bets([bet])
-
-            logging.info(
-                f"action: apuesta_almacenada | result: success | dni: {bet_message.documento} | numero: {bet_message.numero}"
-            )
+            self._handle_batch_bets(message, addr)
 
             # Send success response to client
             send_response(client_sock, success=True)
@@ -110,6 +100,29 @@ class Server:
             send_response(client_sock, success=False, error="Internal server error")
         finally:
             client_sock.close()
+
+    def _handle_batch_bets(self, batch_message, addr):
+        """Handle batch of bets (Exercise 6)"""
+        bets_to_store = []
+
+        # Process all bets in the batch
+        for bet_message in batch_message.bets:
+            bet = Bet(
+                agency=str(batch_message.agency),
+                first_name=bet_message.nombre,
+                last_name=bet_message.apellido,
+                document=bet_message.documento,
+                birthdate=bet_message.nacimiento,
+                number=str(bet_message.numero),
+            )
+            bets_to_store.append(bet)
+
+        # Store all bets at once
+        store_bets(bets_to_store)
+
+        logging.info(
+            f"action: apuesta_recibida | result: success | cantidad: {len(batch_message.bets)}"
+        )
 
     def __accept_new_connection(self):
         """Accept new connections (blocking call)"""
