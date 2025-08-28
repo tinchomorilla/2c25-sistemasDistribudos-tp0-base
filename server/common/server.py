@@ -1,12 +1,9 @@
 import socket
 import logging
 import signal
-import threading
 from .protocol import (
     read_packet_from,
     send_response,
-    MESSAGE_TYPE_BET,
-    MESSAGE_TYPE_BATCH,
 )
 from .utils import Bet, store_bets
 
@@ -102,7 +99,7 @@ class Server:
             client_sock.close()
 
     def _handle_batch_bets(self, batch_message, addr):
-        """Handle batch of bets (Exercise 6)"""
+        """Handle batch of bets"""
         bets_to_store = []
 
         # Process all bets in the batch
