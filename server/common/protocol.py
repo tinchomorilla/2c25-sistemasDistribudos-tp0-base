@@ -7,6 +7,7 @@ BUFFER_SIZE = 4096
 MESSAGE_TYPE_BET = "bet"
 MESSAGE_TYPE_BATCH = "batch"
 MESSAGE_TYPE_RESPONSE = "response"
+MESSAGE_TYPE_GET_WINNERS = "get_winners"
 
 
 class BetMessage:
@@ -35,32 +36,50 @@ class BetMessage:
 class BatchMessage:
     """Represents multiple bets sent together"""
 
-    def __init__(self, agency, bets):
+    def __init__(self, agency, bets, eof=False):
         self.type = MESSAGE_TYPE_BATCH
         self.agency = agency  # Agency number (1-5)
         self.bets = bets  # List of BetMessage objects
+        self.eof = eof  # End of file flag
 
     @classmethod
     def from_dict(cls, data):
         """Create BatchMessage from dictionary"""
         agency = data["agency"]
         bets = [BetMessage.from_dict(bet_data) for bet_data in data["bets"]]
-        return cls(agency, bets)
+        eof = data.get("eof", False)  # Default to False if not present
+        return cls(agency, bets, eof)
+
+
+class GetWinnersMessage:
+    """Represents a request to get winners for an agency"""
+
+    def __init__(self, agency):
+        self.type = MESSAGE_TYPE_GET_WINNERS
+        self.agency = agency  # Agency number (1-5)
+
+    @classmethod
+    def from_dict(cls, data):
+        """Create GetWinnersMessage from dictionary"""
+        return cls(agency=data["agency"])
 
 
 class ResponseMessage:
     """Represents server response to client"""
 
-    def __init__(self, success, error=None):
+    def __init__(self, success, error=None, winners=None):
         self.type = MESSAGE_TYPE_RESPONSE
         self.success = success
         self.error = error
+        self.winners = winners  # List of winners DNIs (for get_winners responses)
 
     def to_dict(self):
         """Convert ResponseMessage to dictionary for serialization"""
         result = {"type": self.type, "success": self.success}
         if self.error:
             result["error"] = self.error
+        if self.winners is not None:
+            result["winners"] = self.winners
         return result
 
 
@@ -112,11 +131,15 @@ def read_packet_from(sock: socket.socket):
 
     if message_type == MESSAGE_TYPE_BATCH:
         return BatchMessage.from_dict(data)
+    elif message_type == MESSAGE_TYPE_GET_WINNERS:
+        return GetWinnersMessage.from_dict(data)
     else:
         raise ValueError(f"Unknown message type: {message_type}")
 
 
-def send_response(sock: socket.socket, success: bool, error: str = None):
+def send_response(
+    sock: socket.socket, success: bool, error: str = None, winners: list = None
+):
     """Send a response message to client"""
-    response = ResponseMessage(success, error)
+    response = ResponseMessage(success, error, winners)
     send_message(sock, response.to_dict())
