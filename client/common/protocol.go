@@ -12,7 +12,7 @@ type MessageType string
 
 const (
 	MessageTypeBet      MessageType = "bet"
-	MessageTypeBatch    MessageType = "batch" 
+	MessageTypeBatch    MessageType = "batch"
 	MessageTypeResponse MessageType = "response"
 )
 
@@ -28,8 +28,9 @@ type BetMessage struct {
 
 // BatchMessage represents multiple bets sent together
 type BatchMessage struct {
-	Type MessageType  `json:"type"`
-	Bets []BetMessage `json:"bets"`
+	Type   MessageType  `json:"type"`
+	Agency int          `json:"agency"` // Agency number (1-5)
+	Bets   []BetMessage `json:"bets"`
 }
 
 // ResponseMessage represents server response to client
@@ -52,10 +53,11 @@ func NewBetMessage(nombre, apellido, documento, nacimiento string, numero int) *
 }
 
 // NewBatchMessage creates a new batch message from a slice of bets
-func NewBatchMessage(bets []BetMessage) *BatchMessage {
+func NewBatchMessage(agency int, bets []BetMessage) *BatchMessage {
 	return &BatchMessage{
-		Type: MessageTypeBatch,
-		Bets: bets,
+		Type:   MessageTypeBatch,
+		Agency: agency,
+		Bets:   bets,
 	}
 }
 
