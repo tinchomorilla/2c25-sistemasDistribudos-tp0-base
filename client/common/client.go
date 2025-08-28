@@ -22,9 +22,9 @@ type ClientConfig struct {
 	ServerAddress  string
 	LoopAmount     int
 	LoopPeriod     time.Duration
-	CSVFile        string 
-	BatchMaxAmount int    
-	Agency         int    
+	CSVFile        string
+	BatchMaxAmount int
+	Agency         int
 }
 
 // Client Entity that encapsulates how
@@ -115,7 +115,7 @@ func (c *Client) readBetsFromCSV() ([]BetRecord, error) {
 
 // calculateMessageSize estimates the JSON size of a batch message
 func (c *Client) calculateMessageSize(bets []BetMessage) int {
-	batch := NewBatchMessage(c.config.Agency, bets)
+	batch := NewBatchMessage(c.config.Agency, bets, false) // Use false for size calculation
 	data, err := json.Marshal(batch)
 	if err != nil {
 		return 0
@@ -137,14 +137,18 @@ func (c *Client) createClientSocket() error {
 	return nil
 }
 
-// StartClientLoopWithCSV reads bets from CSV and sends them in batches (Exercise 6)
+// StartClientLoopWithCSV reads bets from CSV and sends them in batches (Exercise 6 & 7)
 func (c *Client) StartClientWithCSV() {
+	log.Infof("action: start_csv_client | csv_file: %s | client_id: %v", c.config.CSVFile, c.config.ID)
+
 	// Read bets from CSV file
 	betsFromCSV, err := c.readBetsFromCSV()
 	if err != nil {
 		log.Errorf("action: read_csv | result: fail | client_id: %v | error: %v", c.config.ID, err)
 		return
 	}
+
+	log.Infof("action: read_csv | result: success | client_id: %v | bets_count: %d", c.config.ID, len(betsFromCSV))
 
 	// Convert CSV records to BetMessages and send in batches
 	var currentBatch []BetMessage
@@ -169,11 +173,8 @@ func (c *Client) StartClientWithCSV() {
 		testBatch := append(currentBatch, betMsg)
 		batchSize := c.calculateMessageSize(testBatch)
 
-		if len(currentBatch) >= c.config.BatchMaxAmount || batchSize > MAX_BATCH_SIZE_BYTES {
-			// Send current batch first
-			if len(currentBatch) > 0 {
-				c.sendBatch(currentBatch)
-			}
+		if len(testBatch) > c.config.BatchMaxAmount || batchSize > MAX_BATCH_SIZE_BYTES {
+			c.sendBatch(currentBatch, false)
 			// Start new batch with current bet
 			currentBatch = []BetMessage{betMsg}
 		} else {
@@ -182,23 +183,22 @@ func (c *Client) StartClientWithCSV() {
 		}
 	}
 
-	// Send remaining bets in the last batch
 	if len(currentBatch) > 0 && !c.shutdownRequested {
-		c.sendBatch(currentBatch)
+		c.sendBatch(currentBatch, true) // EOF = true for the last batch
 	}
 
 	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
 }
 
 // sendBatch sends a batch of bets to the server
-func (c *Client) sendBatch(bets []BetMessage) {
+func (c *Client) sendBatch(bets []BetMessage, eof bool) {
 	if err := c.createClientSocket(); err != nil {
 		return
 	}
 	defer c.conn.Close()
 
 	// Create batch message with agency number
-	batchMessage := NewBatchMessage(c.config.Agency, bets)
+	batchMessage := NewBatchMessage(c.config.Agency, bets, eof)
 
 	// Send batch message
 	if err := SendMessage(c.conn, batchMessage); err != nil {
@@ -220,8 +220,13 @@ func (c *Client) sendBatch(bets []BetMessage) {
 
 	// Log result based on server response
 	if response.Success {
-		log.Infof("action: apuesta_enviada | result: success | batch_size: %v",
-			len(bets))
+		if eof {
+			log.Infof("action: apuesta_enviada | result: success | batch_size: %v | eof: true",
+				len(bets))
+		} else {
+			log.Infof("action: apuesta_enviada | result: success | batch_size: %v",
+				len(bets))
+		}
 	} else {
 		log.Errorf("action: apuesta_enviada | result: fail | batch_size: %v | error: %v",
 			len(bets), response.Error)

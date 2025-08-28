@@ -31,6 +31,7 @@ type BatchMessage struct {
 	Type   MessageType  `json:"type"`
 	Agency int          `json:"agency"` // Agency number (1-5)
 	Bets   []BetMessage `json:"bets"`
+    EOF bool        `json:"eof"`
 }
 
 // ResponseMessage represents server response to client
@@ -53,11 +54,12 @@ func NewBetMessage(nombre, apellido, documento, nacimiento string, numero int) *
 }
 
 // NewBatchMessage creates a new batch message from a slice of bets
-func NewBatchMessage(agency int, bets []BetMessage) *BatchMessage {
+func NewBatchMessage(agency int, bets []BetMessage, eof bool) *BatchMessage {
 	return &BatchMessage{
 		Type:   MessageTypeBatch,
 		Agency: agency,
 		Bets:   bets,
+		EOF:    eof,
 	}
 }
 
