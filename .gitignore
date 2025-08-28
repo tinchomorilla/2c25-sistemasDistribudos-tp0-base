@@ -3,3 +3,7 @@
 
 # Executables
 bin/
+
+# Data directories created by Docker
+data/
+.data/
