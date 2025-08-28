@@ -89,7 +89,6 @@ class Server:
             # Route message based on type
             if message.type == MESSAGE_TYPE_BATCH:
                 self._handle_batch_message(message, addr)
-                send_response(client_sock, success=True)
             elif message.type == MESSAGE_TYPE_GET_WINNERS:
                 self._handle_get_winners_message(message, addr, client_sock)
             else:
