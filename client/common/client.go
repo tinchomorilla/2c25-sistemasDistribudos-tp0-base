@@ -139,7 +139,7 @@ func (c *Client) createClientSocket() error {
 
 // StartClientLoopWithCSV reads bets from CSV and sends them in batches (Exercise 6 & 7)
 func (c *Client) StartClientWithCSV() {
-	log.Infof("action: start_csv_client | csv_file: %s | client_id: %v", c.config.CSVFile, c.config.ID)
+	log.Infof("action: start_csv_client | result: in_progress | client_id: %v | csv_file: %s", c.config.ID, c.config.CSVFile)
 
 	// Read bets from CSV file
 	betsFromCSV, err := c.readBetsFromCSV()
