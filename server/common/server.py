@@ -4,8 +4,10 @@ import signal
 from .protocol import (
     read_packet_from,
     send_response,
+    MESSAGE_TYPE_BATCH,
+    MESSAGE_TYPE_GET_WINNERS,
 )
-from .utils import Bet, store_bets
+from .utils import Bet, store_bets, load_bets, has_won
 
 
 class Server:
@@ -18,6 +20,12 @@ class Server:
         # Track active connections for graceful shutdown
         self._active_connections = []
         self._shutdown_requested = False
+
+        self._finished_agencies = (
+            set()
+        )  # Track which agencies have finished sending bets
+        self._lottery_done = False  # Flag to track if lottery has been performed
+        self._winners_by_agency = {}  # Dict mapping agency_id -> list of winners DNIs
 
         # Set up signal handler for graceful shutdown
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -78,10 +86,14 @@ class Server:
 
             message = read_packet_from(client_sock)
 
-            self._handle_batch_bets(message, addr)
-
-            # Send success response to client
-            send_response(client_sock, success=True)
+            # Route message based on type
+            if message.type == MESSAGE_TYPE_BATCH:
+                self._handle_batch_message(message, addr)
+                send_response(client_sock, success=True)
+            elif message.type == MESSAGE_TYPE_GET_WINNERS:
+                self._handle_get_winners_message(message, addr, client_sock)
+            else:
+                raise ValueError(f"Unsupported message type: {message.type}")
 
         except ValueError as e:
             # Invalid message format or data
@@ -98,8 +110,8 @@ class Server:
         finally:
             client_sock.close()
 
-    def _handle_batch_bets(self, batch_message, addr):
-        """Handle batch of bets"""
+    def _handle_batch_message(self, batch_message, addr):
+        """Handle batch of bets with EOF detection"""
         bets_to_store = []
 
         # Process all bets in the batch
@@ -115,11 +127,85 @@ class Server:
             bets_to_store.append(bet)
 
         # Store all bets at once
-        store_bets(bets_to_store)
+        if bets_to_store:
+            store_bets(bets_to_store)
 
         logging.info(
             f"action: apuesta_recibida | result: success | cantidad: {len(batch_message.bets)}"
         )
+
+        # Check if this agency has finished sending bets (EOF flag)
+        if batch_message.eof:
+            self._finished_agencies.add(batch_message.agency)
+            logging.info(
+                f"action: agency_finished | result: success | agency: {batch_message.agency} | total_finished: {len(self._finished_agencies)}"
+            )
+
+            # Check if all 5 agencies have finished
+            if len(self._finished_agencies) == 5:
+                self._perform_lottery()
+
+    def _handle_get_winners_message(self, message, client_sock):
+        """Handle request to get winners for an agency"""
+        agency_id = message.agency
+
+        # Check if lottery has been performed
+        if not self._lottery_done:
+            logging.error(
+                f"action: consulta_ganadores | result: fail | agency: {agency_id} | error: lottery not performed yet"
+            )
+            send_response(
+                client_sock,
+                success=False,
+                error="Lottery not performed yet. All agencies must finish first.",
+            )
+            return
+
+        # Check if requesting agency finished their bets
+        if agency_id not in self._finished_agencies:
+            logging.error(
+                f"action: consulta_ganadores | result: fail | agency: {agency_id} | error: agency did not finish sending bets"
+            )
+            send_response(
+                client_sock, success=False, error="Agency did not finish sending bets"
+            )
+            return
+
+        # Get winners for this agency
+        winners = self._winners_by_agency.get(agency_id, [])
+        logging.info(
+            f"action: consulta_ganadores | result: success | agency: {agency_id} | cant_ganadores: {len(winners)}"
+        )
+
+        send_response(client_sock, success=True, winners=winners)
+
+    def _perform_lottery(self):
+        """Perform the lottery once all agencies have finished"""
+        try:
+            logging.info(
+                "action: sorteo | result: in_progress | msg: all agencies finished, starting lottery"
+            )
+
+            # Load all bets from storage
+            all_bets = list(load_bets())
+
+            # Group bets by agency and check for winners
+            for bet in all_bets:
+                agency_id = bet.agency
+
+                # Check if this bet won
+                if has_won(bet):
+                    self._winners_by_agency[agency_id].append(bet.document)
+
+            # Mark lottery as done
+            self._lottery_done = True
+
+            # Log successful lottery completion
+            logging.info("action: sorteo | result: success")
+
+        except Exception as e:
+            logging.error(f"action: sorteo | result: fail | error: {e}")
+            raise
 
     def __accept_new_connection(self):
         """Accept new connections (blocking call)"""
