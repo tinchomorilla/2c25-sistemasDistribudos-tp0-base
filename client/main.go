@@ -112,11 +112,11 @@ func main() {
 		LoopPeriod:     v.GetDuration("loop.period"),
 		CSVFile:        v.GetString("csv.file"),
 		BatchMaxAmount: v.GetInt("batch.maxAmount"),
-		Numero:     v.GetInt("numero"),
+		Agency:         v.GetInt("id"),
 	}
 
 	client := common.NewClient(clientConfig)
 
 	client.StartClientWithCSV()
-	
+
 }

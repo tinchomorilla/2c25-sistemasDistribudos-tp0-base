@@ -24,7 +24,7 @@ type ClientConfig struct {
 	LoopPeriod     time.Duration
 	CSVFile        string 
 	BatchMaxAmount int    
-	Numero     int
+	Agency         int    
 }
 
 // Client Entity that encapsulates how
@@ -115,7 +115,7 @@ func (c *Client) readBetsFromCSV() ([]BetRecord, error) {
 
 // calculateMessageSize estimates the JSON size of a batch message
 func (c *Client) calculateMessageSize(bets []BetMessage) int {
-	batch := NewBatchMessage(bets)
+	batch := NewBatchMessage(c.config.Agency, bets)
 	data, err := json.Marshal(batch)
 	if err != nil {
 		return 0
@@ -197,8 +197,8 @@ func (c *Client) sendBatch(bets []BetMessage) {
 	}
 	defer c.conn.Close()
 
-	// Create batch message
-	batchMessage := NewBatchMessage(bets)
+	// Create batch message with agency number
+	batchMessage := NewBatchMessage(c.config.Agency, bets)
 
 	// Send batch message
 	if err := SendMessage(c.conn, batchMessage); err != nil {
