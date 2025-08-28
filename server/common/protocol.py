@@ -105,6 +105,17 @@ def recv_batch_message(sock: socket.socket) -> BatchMessage:
     return BatchMessage.from_dict(data)
 
 
+def read_packet_from(sock: socket.socket):
+    """Receive any message and return appropriate object"""
+    data = recv_message(sock)
+    message_type = data.get("type")
+
+    if message_type == MESSAGE_TYPE_BATCH:
+        return BatchMessage.from_dict(data)
+    else:
+        raise ValueError(f"Unknown message type: {message_type}")
+
+
 def send_response(sock: socket.socket, success: bool, error: str = None):
     """Send a response message to client"""
     response = ResponseMessage(success, error)
