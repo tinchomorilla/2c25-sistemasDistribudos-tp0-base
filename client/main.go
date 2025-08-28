@@ -34,11 +34,6 @@ func InitConfig() (*viper.Viper, error) {
 	// Add env variables supported
 	v.BindEnv("csv", "file") // For CLI_CSV_FILE
 	v.BindEnv("batch", "maxAmount")
-	v.BindEnv("nombre")
-	v.BindEnv("apellido")
-	v.BindEnv("documento")
-	v.BindEnv("nacimiento")
-	v.BindEnv("numero")
 	v.BindEnv("id")
 	v.BindEnv("server", "address")
 	v.BindEnv("loop", "period")
@@ -117,10 +112,6 @@ func main() {
 		LoopPeriod:     v.GetDuration("loop.period"),
 		CSVFile:        v.GetString("csv.file"),
 		BatchMaxAmount: v.GetInt("batch.maxAmount"),
-		Nombre:     v.GetString("nombre"),
-		Apellido:   v.GetString("apellido"),
-		Documento:  v.GetString("documento"),
-		Nacimiento: v.GetString("nacimiento"),
 		Numero:     v.GetInt("numero"),
 	}
 
