@@ -11,9 +11,10 @@ import (
 type MessageType string
 
 const (
-	MessageTypeBet      MessageType = "bet"
-	MessageTypeBatch    MessageType = "batch"
-	MessageTypeResponse MessageType = "response"
+	MessageTypeBet        MessageType = "bet"
+	MessageTypeBatch      MessageType = "batch"
+	MessageTypeResponse   MessageType = "response"
+	MessageTypeGetWinners MessageType = "get_winners"
 )
 
 // BetMessage represents a betting request from client to server
@@ -31,7 +32,7 @@ type BatchMessage struct {
 	Type   MessageType  `json:"type"`
 	Agency int          `json:"agency"` // Agency number (1-5)
 	Bets   []BetMessage `json:"bets"`
-    EOF bool        `json:"eof"`
+	EOF    bool         `json:"eof"`
 }
 
 // ResponseMessage represents server response to client
@@ -39,6 +40,13 @@ type ResponseMessage struct {
 	Type    MessageType `json:"type"`
 	Success bool        `json:"success"`
 	Error   string      `json:"error,omitempty"`
+	Winners []string    `json:"winners,omitempty"` // List of winner DNIs
+}
+
+// GetWinnersMessage represents a request to get winners for an agency
+type GetWinnersMessage struct {
+	Type   MessageType `json:"type"`
+	Agency int         `json:"agency"` // Agency number (1-5)
 }
 
 // NewBetMessage creates a new bet message from the provided data
@@ -60,6 +68,14 @@ func NewBatchMessage(agency int, bets []BetMessage, eof bool) *BatchMessage {
 		Agency: agency,
 		Bets:   bets,
 		EOF:    eof,
+	}
+}
+
+// NewGetWinnersMessage creates a new get winners message
+func NewGetWinnersMessage(agency int) *GetWinnersMessage {
+	return &GetWinnersMessage{
+		Type:   MessageTypeGetWinners,
+		Agency: agency,
 	}
 }
 
