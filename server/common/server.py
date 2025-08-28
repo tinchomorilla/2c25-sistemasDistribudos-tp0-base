@@ -2,6 +2,8 @@ import socket
 import logging
 import signal
 import os
+import threading
+import time
 from .protocol import (
     read_packet_from,
     send_response,
@@ -18,14 +20,23 @@ class Server:
         self._server_socket.bind(("", port))
         self._server_socket.listen(listen_backlog)
 
-        # Track active connections for graceful shutdown
+        # Track active connections and threads for graceful shutdown
         self._active_connections = []
+        self._active_threads = []
         self._shutdown_requested = False
 
+        # Thread safety - individual locks for each shared data structure
+        self._connections_lock = threading.Lock()
+
+        # Shared data structures with their own locks (like Arc<Mutex<T>> in Rust)
+        self._finished_agencies_lock = threading.Lock()
         self._finished_agencies = (
             set()
         )  # Track which agencies have finished sending bets
+
+        self._lottery_done_lock = threading.Lock()
         self._lottery_done = False  # Flag to track if lottery has been performed
+
         self._winners_by_agency = {}  # Dict mapping agency_id -> list of winners DNIs
 
         # Get expected number of agencies from environment variable
@@ -54,19 +65,25 @@ class Server:
             )
 
     def run(self):
-        """Main server loop with graceful shutdown support"""
+        """Main server loop with graceful shutdown support and concurrent connection handling"""
         while not self._shutdown_requested:
             try:
                 client_sock = self.__accept_new_connection()
                 if client_sock and not self._shutdown_requested:
-                    # Track active connections
-                    self._active_connections.append(client_sock)
+                    # Create a new thread to handle this connection
+                    client_thread = threading.Thread(
+                        target=self.__handle_client_connection_threaded,
+                        args=(client_sock,),
+                        daemon=True,
+                    )
 
-                    self.__handle_client_connection(client_sock)
+                    # Track the thread and connection
+                    with self._connections_lock:
+                        self._active_connections.append(client_sock)
+                        self._active_threads.append(client_thread)
 
-                    # Remove connection once handled
-                    if client_sock in self._active_connections:
-                        self._active_connections.remove(client_sock)
+                    # Start the thread
+                    client_thread.start()
 
             except socket.error:
                 # Server socket was likely closed due to shutdown
@@ -80,11 +97,26 @@ class Server:
                 if not self._shutdown_requested:
                     logging.error(f"action: server_loop | result: fail | error: {e}")
 
-        # Final cleanup once loop exits
+        # Wait for all threads to complete and final cleanup
+        self._wait_for_threads()
         self._cleanup_connections()
         logging.info(
             "action: shutdown | result: success | msg: graceful shutdown completed"
         )
+
+    def __handle_client_connection_threaded(self, client_sock):
+        """Thread-safe wrapper for handling client connections"""
+        try:
+            self.__handle_client_connection(client_sock)
+        finally:
+            # Clean up connection and thread tracking
+            with self._connections_lock:
+                if client_sock in self._active_connections:
+                    self._active_connections.remove(client_sock)
+                # Remove current thread from tracking
+                current_thread = threading.current_thread()
+                if current_thread in self._active_threads:
+                    self._active_threads.remove(current_thread)
 
     def __handle_client_connection(self, client_sock):
         """Handle communication with a client and close socket"""
@@ -116,7 +148,7 @@ class Server:
         finally:
             client_sock.close()
 
-    def _handle_batch_message(self, batch_message, addr):
+    def _handle_batch_message(self, batch_message):
         """Handle batch of bets with EOF detection"""
         bets_to_store = []
 
@@ -142,21 +174,33 @@ class Server:
 
         # Check if this agency has finished sending bets (EOF flag)
         if batch_message.eof:
-            self._finished_agencies.add(batch_message.agency)
-            logging.info(
-                f"action: agency_finished | result: success | agency: {batch_message.agency} | total_finished: {len(self._finished_agencies)}"
-            )
+            should_perform_lottery = False
 
-            # Check if all expected agencies have finished
-            if len(self._finished_agencies) == self._expected_agencies:
+            with self._finished_agencies_lock:
+                self._finished_agencies.add(batch_message.agency)
+                finished_count = len(self._finished_agencies)
+
+                logging.info(
+                    f"action: agency_finished | result: success | agency: {batch_message.agency} | total_finished: {finished_count}"
+                )
+
+                # Check if all expected agencies have finished
+                if finished_count == self._expected_agencies:
+                    should_perform_lottery = True
+
+            # (outside the lock to avoid blocking other threads)
+            if should_perform_lottery:
                 self._perform_lottery()
 
     def _handle_get_winners_message(self, message, client_sock):
-        """Handle request to get winners for an agency"""
+        """Handle request to get winners for an agency - thread safe"""
         agency_id = message.agency
 
         # Check if lottery has been performed
-        if not self._lottery_done:
+        with self._lottery_done_lock:
+            lottery_done = self._lottery_done
+
+        if not lottery_done:
             logging.error(
                 f"action: consulta_ganadores | result: fail | agency: {agency_id} | error: lottery not performed yet"
             )
@@ -168,7 +212,10 @@ class Server:
             return
 
         # Check if requesting agency finished their bets
-        if agency_id not in self._finished_agencies:
+        with self._finished_agencies_lock:
+            agency_finished = agency_id in self._finished_agencies
+
+        if not agency_finished:
             logging.error(
                 f"action: consulta_ganadores | result: fail | agency: {agency_id} | error: agency did not finish sending bets"
             )
@@ -178,7 +225,8 @@ class Server:
             return
 
         # Get winners for this agency
-        winners = self._winners_by_agency.get(agency_id, [])
+        winners = self._winners_by_agency.get(agency_id, []).copy()
+
         logging.info(
             f"action: consulta_ganadores | result: success | agency: {agency_id} | cant_ganadores: {len(winners)}"
         )
@@ -187,6 +235,11 @@ class Server:
 
     def _perform_lottery(self):
         """Perform the lottery once all agencies have finished"""
+        # Double-check that lottery hasn't been performed already
+        with self._lottery_done_lock:
+            if self._lottery_done:
+                return
+
         try:
             logging.info(
                 "action: sorteo | result: in_progress | msg: all agencies finished, starting lottery"
@@ -208,7 +261,8 @@ class Server:
                     self._winners_by_agency[agency_id].append(bet.document)
 
             # Mark lottery as done
-            self._lottery_done = True
+            with self._lottery_done_lock:
+                self._lottery_done = True
 
             # Log successful lottery completion
             logging.info("action: sorteo | result: success")
@@ -224,11 +278,33 @@ class Server:
         logging.info(f"action: accept_connections | result: success | ip: {addr[0]}")
         return c
 
+    def _wait_for_threads(self):
+        """Wait for all active threads to complete"""
+        logging.info(
+            "action: shutdown | result: in_progress | msg: waiting for threads to complete"
+        )
+
+        with self._connections_lock:
+            threads_to_wait = self._active_threads.copy()
+
+        for thread in threads_to_wait:
+            try:
+                # Wait up to 5 seconds for each thread to complete
+                thread.join(timeout=5.0)
+                if thread.is_alive():
+                    logging.warning(
+                        f"action: shutdown | result: warning | msg: thread did not complete in time"
+                    )
+            except Exception as e:
+                logging.error(
+                    f"action: shutdown | result: fail | msg: error waiting for thread | error: {e}"
+                )
+
     def _cleanup_connections(self):
         """Close all active client connections"""
-
-        connections_to_close = self._active_connections.copy()
-        self._active_connections.clear()
+        with self._connections_lock:
+            connections_to_close = self._active_connections.copy()
+            self._active_connections.clear()
 
         for client_sock in connections_to_close:
             try:
