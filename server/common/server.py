@@ -90,7 +90,7 @@ class Server:
             if message.type == MESSAGE_TYPE_BATCH:
                 self._handle_batch_message(message, addr)
             elif message.type == MESSAGE_TYPE_GET_WINNERS:
-                self._handle_get_winners_message(message, addr, client_sock)
+                self._handle_get_winners_message(message, client_sock)
             else:
                 raise ValueError(f"Unsupported message type: {message.type}")
 
@@ -191,6 +191,10 @@ class Server:
             # Group bets by agency and check for winners
             for bet in all_bets:
                 agency_id = bet.agency
+
+                # Initialize agency list if it doesn't exist
+                if agency_id not in self._winners_by_agency:
+                    self._winners_by_agency[agency_id] = []
 
                 # Check if this bet won
                 if has_won(bet):
