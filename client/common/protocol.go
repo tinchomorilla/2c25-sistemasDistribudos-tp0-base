@@ -1,43 +1,53 @@
 package common
 
 import (
-	"bufio"
-	"encoding/json"
+	"encoding/binary"
 	"fmt"
 	"net"
+	"strconv"
+	"strings"
 )
 
 // MessageType represents the type of message being sent
-type MessageType string
+type MessageType byte
 
 const (
-	MessageTypeBet      MessageType = "bet"
-	MessageTypeBatch    MessageType = "batch"
-	MessageTypeResponse MessageType = "response"
+	MessageTypeBet        MessageType = 1
+	MessageTypeBatch      MessageType = 2
+	MessageTypeResponse   MessageType = 3
+	MessageTypeGetWinners MessageType = 4
 )
 
 // BetMessage represents a betting request from client to server
 type BetMessage struct {
-	Type       MessageType `json:"type"`
-	Nombre     string      `json:"nombre"`
-	Apellido   string      `json:"apellido"`
-	Documento  string      `json:"documento"`
-	Nacimiento string      `json:"nacimiento"`
-	Numero     int         `json:"numero"`
+	Type       MessageType
+	Nombre     string
+	Apellido   string
+	Documento  string
+	Nacimiento string
+	Numero     int
 }
 
 // BatchMessage represents multiple bets sent together
 type BatchMessage struct {
-	Type   MessageType  `json:"type"`
-	Agency int          `json:"agency"` // Agency number (1-5)
-	Bets   []BetMessage `json:"bets"`
+	Type   MessageType
+	Agency int // Agency number (1-5)
+	Bets   []BetMessage
+	EOF    bool
 }
 
 // ResponseMessage represents server response to client
 type ResponseMessage struct {
-	Type    MessageType `json:"type"`
-	Success bool        `json:"success"`
-	Error   string      `json:"error,omitempty"`
+	Type    MessageType
+	Success bool
+	Error   string
+	Winners []string // List of winner DNIs
+}
+
+// GetWinnersMessage represents a request to get winners for an agency
+type GetWinnersMessage struct {
+	Type   MessageType
+	Agency int // Agency number (1-5)
 }
 
 // NewBetMessage creates a new bet message from the provided data
@@ -53,31 +63,173 @@ func NewBetMessage(nombre, apellido, documento, nacimiento string, numero int) *
 }
 
 // NewBatchMessage creates a new batch message from a slice of bets
-func NewBatchMessage(agency int, bets []BetMessage) *BatchMessage {
+func NewBatchMessage(agency int, bets []BetMessage, eof bool) *BatchMessage {
 	return &BatchMessage{
 		Type:   MessageTypeBatch,
 		Agency: agency,
 		Bets:   bets,
+		EOF:    eof,
 	}
 }
 
-// SendMessage serializes message to JSON and sends with newline
+// NewGetWinnersMessage creates a new get winners message
+func NewGetWinnersMessage(agency int) *GetWinnersMessage {
+	return &GetWinnersMessage{
+		Type:   MessageTypeGetWinners,
+		Agency: agency,
+	}
+}
+
+// SerializeMessage converts a message to custom protocol format
+func SerializeMessage(message interface{}) ([]byte, error) {
+	var data []byte
+
+	switch msg := message.(type) {
+	case *BatchMessage:
+		data = append(data, byte(MessageTypeBatch))
+		content := fmt.Sprintf("%d|%d|%d", msg.Agency, boolToInt(msg.EOF), len(msg.Bets))
+		for _, bet := range msg.Bets {
+			content += fmt.Sprintf("|%s|%s|%s|%s|%d", bet.Nombre, bet.Apellido, bet.Documento, bet.Nacimiento, bet.Numero)
+		}
+		data = append(data, []byte(content)...)
+
+	case *GetWinnersMessage:
+		data = append(data, byte(MessageTypeGetWinners))
+		content := fmt.Sprintf("%d", msg.Agency)
+		data = append(data, []byte(content)...)
+
+	default:
+		return nil, fmt.Errorf("unsupported message type")
+	}
+
+	return data, nil
+}
+
+// DeserializeMessage parses custom protocol data into a message
+func DeserializeMessage(data []byte) (interface{}, error) {
+	if len(data) < 1 {
+		return nil, fmt.Errorf("empty message")
+	}
+
+	msgType := MessageType(data[0])
+	content := string(data[1:])
+
+	switch msgType {
+	case MessageTypeResponse:
+		return parseResponseMessage(content)
+	default:
+		return nil, fmt.Errorf("unsupported message type: %d", msgType)
+	}
+}
+
+// parseResponseMessage parses response message from pipe-delimited content
+func parseResponseMessage(content string) (*ResponseMessage, error) {
+	parts := strings.Split(content, "|")
+	if len(parts) < 3 {
+		return nil, fmt.Errorf("invalid response format")
+	}
+
+	success := parts[0] == "1"
+	errorMsg := parts[1]
+
+	winnerCount, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return nil, fmt.Errorf("invalid winner count: %w", err)
+	}
+
+	var winners []string
+	for i := 3; i < 3+winnerCount && i < len(parts); i++ {
+		if parts[i] != "" {
+			winners = append(winners, parts[i])
+		}
+	}
+
+	return &ResponseMessage{
+		Type:    MessageTypeResponse,
+		Success: success,
+		Error:   errorMsg,
+		Winners: winners,
+	}, nil
+}
+
+// boolToInt converts boolean to integer
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// SendMessage serializes message and sends with length prefix
 func SendMessage(conn net.Conn, message interface{}) error {
-	data, err := json.Marshal(message)
+	data, err := SerializeMessage(message)
 	if err != nil {
-		return fmt.Errorf("error marshaling message: %w", err)
+		return fmt.Errorf("error serializing message: %w", err)
 	}
-	data = append(data, '\n') // delimiter
-	_, err = conn.Write(data)
-	return err
+
+	// Send length prefix (4 bytes, big endian)
+	length := uint32(len(data))
+	lengthBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(lengthBytes, length)
+
+	if _, err := conn.Write(lengthBytes); err != nil {
+		return fmt.Errorf("error sending length: %w", err)
+	}
+
+	// Send message data
+	if _, err := conn.Write(data); err != nil {
+		return fmt.Errorf("error sending data: %w", err)
+	}
+
+	return nil
 }
 
-// RecvMessage reads until newline and decodes JSON
+// RecvMessage reads length-prefixed message and deserializes
 func RecvMessage(conn net.Conn, v interface{}) error {
-	reader := bufio.NewReader(conn)
-	line, err := reader.ReadBytes('\n')
-	if err != nil {
-		return fmt.Errorf("error reading message: %w", err)
+	// Read length prefix (4 bytes)
+	lengthBytes := make([]byte, 4)
+	if _, err := readExact(conn, lengthBytes); err != nil {
+		return fmt.Errorf("error reading length: %w", err)
 	}
-	return json.Unmarshal(line, v)
+
+	length := binary.BigEndian.Uint32(lengthBytes)
+
+	// Read message data
+	data := make([]byte, length)
+	if _, err := readExact(conn, data); err != nil {
+		return fmt.Errorf("error reading data: %w", err)
+	}
+
+	// Deserialize message
+	message, err := DeserializeMessage(data)
+	if err != nil {
+		return fmt.Errorf("error deserializing message: %w", err)
+	}
+
+	// Copy to destination
+	switch dst := v.(type) {
+	case *ResponseMessage:
+		if src, ok := message.(*ResponseMessage); ok {
+			*dst = *src
+		} else {
+			return fmt.Errorf("type mismatch: expected ResponseMessage")
+		}
+	default:
+		return fmt.Errorf("unsupported destination type")
+	}
+
+	return nil
+}
+
+// readExact reads exactly len(buf) bytes from conn
+func readExact(conn net.Conn, buf []byte) (int, error) {
+	totalRead := 0
+	for totalRead < len(buf) {
+		n, err := conn.Read(buf[totalRead:])
+		if err != nil {
+			return totalRead, err
+		}
+		totalRead += n
+	}
+	return totalRead, nil
 }
