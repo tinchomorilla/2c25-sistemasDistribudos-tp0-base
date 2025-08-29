@@ -2,7 +2,6 @@ package common
 
 import (
 	"encoding/csv"
-	"encoding/json"
 	"io"
 	"net"
 	"os"
@@ -113,14 +112,14 @@ func (c *Client) readBetsFromCSV() ([]BetRecord, error) {
 	return bets, nil
 }
 
-// calculateMessageSize estimates the JSON size of a batch message
+// calculateMessageSize estimates the custom protocol size of a batch message
 func (c *Client) calculateMessageSize(bets []BetMessage) int {
 	batch := NewBatchMessage(c.config.Agency, bets, false) // Use false for size calculation
-	data, err := json.Marshal(batch)
+	data, err := SerializeMessage(batch)
 	if err != nil {
 		return 0
 	}
-	return len(data)
+	return len(data) + 4 // +4 for length prefix
 }
 
 // CreateClientSocket Initializes client socket
