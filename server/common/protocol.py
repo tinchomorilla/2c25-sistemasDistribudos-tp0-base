@@ -1,13 +1,13 @@
-import json
 import socket
+import struct
 
 BUFFER_SIZE = 4096
 
-# Message types
-MESSAGE_TYPE_BET = "bet"
-MESSAGE_TYPE_BATCH = "batch"
-MESSAGE_TYPE_RESPONSE = "response"
-MESSAGE_TYPE_GET_WINNERS = "get_winners"
+# Message types (matching Go client)
+MESSAGE_TYPE_BET = 1
+MESSAGE_TYPE_BATCH = 2
+MESSAGE_TYPE_RESPONSE = 3
+MESSAGE_TYPE_GET_WINNERS = 4
 
 
 class BetMessage:
@@ -21,17 +21,6 @@ class BetMessage:
         self.nacimiento = nacimiento
         self.numero = numero
 
-    @classmethod
-    def from_dict(cls, data):
-        """Create BetMessage from dictionary"""
-        return cls(
-            nombre=data["nombre"],
-            apellido=data["apellido"],
-            documento=data["documento"],
-            nacimiento=data["nacimiento"],
-            numero=data["numero"],
-        )
-
 
 class BatchMessage:
     """Represents multiple bets sent together"""
@@ -40,14 +29,39 @@ class BatchMessage:
         self.type = MESSAGE_TYPE_BATCH
         self.agency = agency  # Agency number (1-5)
         self.bets = bets  # List of BetMessage objects
-        self.eof = eof  # End of file flag
+        self.eof = eof
 
     @classmethod
-    def from_dict(cls, data):
-        """Create BatchMessage from dictionary"""
-        agency = data["agency"]
-        bets = [BetMessage.from_dict(bet_data) for bet_data in data["bets"]]
-        eof = data.get("eof", False)  # Default to False if not present
+    def from_data(cls, data):
+        """Parse batch message from custom protocol data"""
+        if len(data) < 1 or data[0] != MESSAGE_TYPE_BATCH:
+            raise ValueError("Invalid batch message")
+
+        content = data[1:].decode("utf-8")
+        parts = content.split("|")
+
+        if len(parts) < 3:
+            raise ValueError("Invalid batch message format")
+
+        agency = int(parts[0])
+        eof = parts[1] == "1"
+        bet_count = int(parts[2])
+
+        bets = []
+        idx = 3
+        for _ in range(bet_count):
+            if idx + 4 >= len(parts):
+                break
+            bet = BetMessage(
+                nombre=parts[idx],
+                apellido=parts[idx + 1],
+                documento=parts[idx + 2],
+                nacimiento=parts[idx + 3],
+                numero=int(parts[idx + 4]),
+            )
+            bets.append(bet)
+            idx += 5
+
         return cls(agency, bets, eof)
 
 
@@ -56,12 +70,17 @@ class GetWinnersMessage:
 
     def __init__(self, agency):
         self.type = MESSAGE_TYPE_GET_WINNERS
-        self.agency = agency  # Agency number (1-5)
+        self.agency = agency
 
     @classmethod
-    def from_dict(cls, data):
-        """Create GetWinnersMessage from dictionary"""
-        return cls(agency=data["agency"])
+    def from_data(cls, data):
+        """Parse get winners message from custom protocol data"""
+        if len(data) < 1 or data[0] != MESSAGE_TYPE_GET_WINNERS:
+            raise ValueError("Invalid get winners message")
+
+        content = data[1:].decode("utf-8")
+        agency = int(content)
+        return cls(agency)
 
 
 class ResponseMessage:
@@ -71,75 +90,71 @@ class ResponseMessage:
         self.type = MESSAGE_TYPE_RESPONSE
         self.success = success
         self.error = error
-        self.winners = winners  # List of winners DNIs (for get_winners responses)
-
-    def to_dict(self):
-        """Convert ResponseMessage to dictionary for serialization"""
-        result = {"type": self.type, "success": self.success}
-        if self.error:
-            result["error"] = self.error
-        if self.winners is not None:
-            result["winners"] = self.winners
-        return result
+        self.winners = winners or []
 
 
-def send_message(sock: socket.socket, message: dict):
-    """Serialize dict as JSON and send with newline delimiter"""
-    data = json.dumps(message).encode("utf-8") + b"\n"
-    total_sent = 0
-    while total_sent < len(data):
-        sent = sock.send(data[total_sent:])
-        if sent == 0:
-            raise RuntimeError("socket connection broken (short write)")
-        total_sent += sent
+def read_packet_from(client_socket):
+    """Read length-prefixed packet and parse message"""
+    # Read length prefix (4 bytes)
+    length_data = _read_exact(client_socket, 4)
+    length = struct.unpack(">I", length_data)[0]
 
+    # Read message data
+    data = _read_exact(client_socket, length)
 
-def recv_message(sock: socket.socket) -> dict:
-    """Receive JSON message terminated by newline"""
-    chunks = []
-    while True:
-        chunk = sock.recv(BUFFER_SIZE)
-        if not chunk:
-            raise RuntimeError("socket connection broken (short read)")
-        chunks.append(chunk)
-        if b"\n" in chunk:
-            break
-    data = b"".join(chunks).split(b"\n", 1)[0]
-    return json.loads(data.decode("utf-8"))
+    # Parse based on message type
+    if len(data) < 1:
+        raise ValueError("Empty message")
 
+    msg_type = data[0]
 
-def recv_bet_message(sock: socket.socket) -> BetMessage:
-    """Receive and parse a bet message"""
-    data = recv_message(sock)
-    if data.get("type") != MESSAGE_TYPE_BET:
-        raise ValueError(f"Expected bet message, got {data.get('type')}")
-    return BetMessage.from_dict(data)
-
-
-def recv_batch_message(sock: socket.socket) -> BatchMessage:
-    """Receive and parse a batch message"""
-    data = recv_message(sock)
-    if data.get("type") != MESSAGE_TYPE_BATCH:
-        raise ValueError(f"Expected batch message, got {data.get('type')}")
-    return BatchMessage.from_dict(data)
-
-
-def read_packet_from(sock: socket.socket):
-    """Receive any message and return appropriate object"""
-    data = recv_message(sock)
-    message_type = data.get("type")
-
-    if message_type == MESSAGE_TYPE_BATCH:
-        return BatchMessage.from_dict(data)
-    elif message_type == MESSAGE_TYPE_GET_WINNERS:
-        return GetWinnersMessage.from_dict(data)
+    if msg_type == MESSAGE_TYPE_BATCH:
+        return BatchMessage.from_data(data)
+    elif msg_type == MESSAGE_TYPE_GET_WINNERS:
+        return GetWinnersMessage.from_data(data)
     else:
-        raise ValueError(f"Unknown message type: {message_type}")
+        raise ValueError(f"Unknown message type: {msg_type}")
 
 
-def send_response(
-    sock: socket.socket, success: bool, error: str = None, winners: list = None
-):
-    """Send a response message to client"""
-    response = ResponseMessage(success, error, winners)
-    send_message(sock, response.to_dict())
+def send_response(client_socket, success, error=None, winners=None):
+    """Send response message using custom protocol"""
+    # Build response data
+    data = bytearray()
+    data.append(MESSAGE_TYPE_RESPONSE)
+
+    # Add success flag
+    data.extend(("1" if success else "0").encode("utf-8"))
+    data.extend(b"|")
+
+    # Add error if present
+    if error:
+        data.extend(error.encode("utf-8"))
+    data.extend(b"|")
+
+    # Add winners if present
+    if winners:
+        data.extend(str(len(winners)).encode("utf-8"))
+        data.extend(b"|")
+        for winner in winners:
+            data.extend(winner.encode("utf-8"))
+            data.extend(b"|")
+    else:
+        data.extend(b"0|")
+
+    # Send length-prefixed message
+    length = len(data)
+    length_bytes = struct.pack(">I", length)
+
+    client_socket.send(length_bytes)
+    client_socket.send(data)
+
+
+def _read_exact(sock, n):
+    """Read exactly n bytes from socket"""
+    data = b""
+    while len(data) < n:
+        chunk = sock.recv(n - len(data))
+        if not chunk:
+            raise RuntimeError("Socket connection broken")
+        data += chunk
+    return data
