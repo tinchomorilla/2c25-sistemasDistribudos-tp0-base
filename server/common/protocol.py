@@ -21,6 +21,26 @@ class BetMessage:
         self.nacimiento = nacimiento
         self.numero = numero
 
+    @classmethod
+    def from_data(cls, data):
+        """Parse bet message from custom protocol data"""
+        if len(data) < 1 or data[0] != MESSAGE_TYPE_BET:
+            raise ValueError("Invalid bet message")
+        
+        content = data[1:].decode('utf-8')
+        parts = content.split('|')
+        
+        if len(parts) < 5:
+            raise ValueError("Invalid bet message format")
+        
+        return cls(
+            nombre=parts[0],
+            apellido=parts[1],
+            documento=parts[2],
+            nacimiento=parts[3],
+            numero=int(parts[4])
+        )
+
 
 class BatchMessage:
     """Represents multiple bets sent together"""
@@ -107,15 +127,15 @@ def read_packet_from(client_socket):
         raise ValueError("Empty message")
 
     msg_type = data[0]
-
-    if msg_type == MESSAGE_TYPE_BATCH:
+    
+    if msg_type == MESSAGE_TYPE_BET:
+        return BetMessage.from_data(data)
+    elif msg_type == MESSAGE_TYPE_BATCH:
         return BatchMessage.from_data(data)
     elif msg_type == MESSAGE_TYPE_GET_WINNERS:
         return GetWinnersMessage.from_data(data)
     else:
         raise ValueError(f"Unknown message type: {msg_type}")
-
-
 def send_response(client_socket, success, error=None, winners=None):
     """Send response message using custom protocol"""
     # Build response data

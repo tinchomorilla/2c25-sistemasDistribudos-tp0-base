@@ -2,7 +2,7 @@ import socket
 import logging
 import signal
 import threading
-from .protocol import recv_bet_message, send_response
+from .protocol import read_packet_from, send_response
 from .utils import Bet, store_bets
 
 
@@ -75,7 +75,7 @@ class Server:
             addr = client_sock.getpeername()
 
             # Receive bet message from client
-            bet_message = recv_bet_message(client_sock)
+            bet_message = read_packet_from(client_sock)
 
             # Create Bet object from the received message
             bet = Bet(
