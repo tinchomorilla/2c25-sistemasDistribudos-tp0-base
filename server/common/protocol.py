@@ -1,96 +1,17 @@
+
 import socket
 import struct
+from .messages import (
+    BetMessage,
+    BatchMessage,
+    GetWinnersMessage,
+    MESSAGE_TYPE_BET,
+    MESSAGE_TYPE_BATCH,
+    MESSAGE_TYPE_GET_WINNERS,
+    MESSAGE_TYPE_RESPONSE,
+)
 
 BUFFER_SIZE = 4096
-
-# Message types (matching Go client)
-MESSAGE_TYPE_BET = 1
-MESSAGE_TYPE_BATCH = 2
-MESSAGE_TYPE_RESPONSE = 3
-MESSAGE_TYPE_GET_WINNERS = 4
-
-
-class BetMessage:
-    """Represents a betting request from client"""
-
-    def __init__(self, nombre, apellido, documento, nacimiento, numero):
-        self.type = MESSAGE_TYPE_BET
-        self.nombre = nombre
-        self.apellido = apellido
-        self.documento = documento
-        self.nacimiento = nacimiento
-        self.numero = numero
-
-
-class BatchMessage:
-    """Represents multiple bets sent together"""
-
-    def __init__(self, agency, bets, eof=False):
-        self.type = MESSAGE_TYPE_BATCH
-        self.agency = agency  # Agency number (1-5)
-        self.bets = bets  # List of BetMessage objects
-        self.eof = eof
-
-    @classmethod
-    def from_data(cls, data):
-        """Parse batch message from custom protocol data"""
-        if len(data) < 1 or data[0] != MESSAGE_TYPE_BATCH:
-            raise ValueError("Invalid batch message")
-
-        content = data[1:].decode("utf-8")
-        parts = content.split("|")
-
-        if len(parts) < 3:
-            raise ValueError("Invalid batch message format")
-
-        agency = int(parts[0])
-        eof = parts[1] == "1"
-        bet_count = int(parts[2])
-
-        bets = []
-        idx = 3
-        for _ in range(bet_count):
-            if idx + 4 >= len(parts):
-                break
-            bet = BetMessage(
-                nombre=parts[idx],
-                apellido=parts[idx + 1],
-                documento=parts[idx + 2],
-                nacimiento=parts[idx + 3],
-                numero=int(parts[idx + 4]),
-            )
-            bets.append(bet)
-            idx += 5
-
-        return cls(agency, bets, eof)
-
-
-class GetWinnersMessage:
-    """Represents a request to get winners for an agency"""
-
-    def __init__(self, agency):
-        self.type = MESSAGE_TYPE_GET_WINNERS
-        self.agency = agency
-
-    @classmethod
-    def from_data(cls, data):
-        """Parse get winners message from custom protocol data"""
-        if len(data) < 1 or data[0] != MESSAGE_TYPE_GET_WINNERS:
-            raise ValueError("Invalid get winners message")
-
-        content = data[1:].decode("utf-8")
-        agency = int(content)
-        return cls(agency)
-
-
-class ResponseMessage:
-    """Represents server response to client"""
-
-    def __init__(self, success, error=None, winners=None):
-        self.type = MESSAGE_TYPE_RESPONSE
-        self.success = success
-        self.error = error
-        self.winners = winners or []
 
 
 def read_packet_from(client_socket):
@@ -108,7 +29,9 @@ def read_packet_from(client_socket):
 
     msg_type = data[0]
 
-    if msg_type == MESSAGE_TYPE_BATCH:
+    if msg_type == MESSAGE_TYPE_BET:
+        return BetMessage.from_data(data)
+    elif msg_type == MESSAGE_TYPE_BATCH:
         return BatchMessage.from_data(data)
     elif msg_type == MESSAGE_TYPE_GET_WINNERS:
         return GetWinnersMessage.from_data(data)
@@ -151,10 +74,12 @@ def send_response(client_socket, success, error=None, winners=None):
 
 def _read_exact(sock, n):
     """Read exactly n bytes from socket"""
-    data = b""
-    while len(data) < n:
-        chunk = sock.recv(n - len(data))
-        if not chunk:
+    chunks = []
+    bytes_read = 0
+    while bytes_read < n:
+        chunk = sock.recv(n - bytes_read)
+        if not chunk:  # Connection closed
             raise RuntimeError("Socket connection broken")
-        data += chunk
-    return data
+        chunks.append(chunk)
+        bytes_read += len(chunk)
+    return b"".join(chunks)
