@@ -73,10 +73,12 @@ def send_response(client_socket, success, error=None, winners=None):
 
 def _read_exact(sock, n):
     """Read exactly n bytes from socket"""
-    data = b""
-    while len(data) < n:
-        chunk = sock.recv(n - len(data))
-        if not chunk:
+    chunks = []
+    bytes_read = 0
+    while bytes_read < n:
+        chunk = sock.recv(n - bytes_read)
+        if not chunk:  # Connection closed
             raise RuntimeError("Socket connection broken")
-        data += chunk
-    return data
+        chunks.append(chunk)
+        bytes_read += len(chunk)
+    return b"".join(chunks)
