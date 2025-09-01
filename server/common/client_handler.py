@@ -40,12 +40,6 @@ class ClientHandler(Thread):
                     # Route message based on type
                     if message.type == MESSAGE_TYPE_BATCH:
                         self.server_callbacks["handle_batch_message"](message)
-                        # If this batch has EOF=True, client is done sending batches
-                        if message.eof:
-                            logging.info(
-                                f"action: client_finished_batches | result: success | ip: {addr[0]} | agency: {message.agency}"
-                            )
-                            # Keep connection open for potential winner requests
                     elif message.type == MESSAGE_TYPE_GET_WINNERS:
                         # Try to get winners 
                         success = self.server_callbacks["handle_get_winners_message"](
