@@ -102,8 +102,8 @@ func (c *Client) validateBetRecord(record []string, numero_aux *int) error {
 }
 
 
-// StartClientWithCSVStreaming processes CSV file in streaming mode without loading all records in memory
-func (c *Client) StartClientWithCSVStreaming() {
+// StartClientWithCSV processes CSV file in streaming mode without loading all records in memory
+func (c *Client) StartClientWithCSV() {
 	file, err := os.Open(c.config.CSVFile)
 	if err != nil {
 		log.Errorf("action: open_csv | result: fail | client_id: %v | error: %v", c.config.ID, err)
