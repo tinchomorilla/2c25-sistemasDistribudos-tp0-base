@@ -114,6 +114,12 @@ func main() {
 		Agency:         v.GetInt("id"), // Agency is same as client ID
 	}
 
+	// Set default batch size if not configured or is 0
+	if clientConfig.BatchMaxAmount == 0 {
+		clientConfig.BatchMaxAmount = common.DEFAULT_BATCH_MAX_AMOUNT
+		log.Infof("action: config | result: default_batch_size | batch_max_amount: %d", clientConfig.BatchMaxAmount)
+	}
+
 	// Set CSV file path from environment variable (set by docker-compose)
 	clientConfig.CSVFile = v.GetString("csv.file")
 
