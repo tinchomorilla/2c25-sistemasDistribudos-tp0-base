@@ -67,7 +67,6 @@ type BetRecord struct {
 	Numero     int
 }
 
-
 // calculateMessageSize estimates the custom protocol size of a batch message
 func (c *Client) calculateMessageSize(bets []BetMessage) int {
 	batch := NewBatchMessage(c.config.Agency, bets, false) // Use false for size calculation
@@ -137,6 +136,12 @@ func (c *Client) validateBetRecord(record []string, numero_aux *int) error {
 
 // StartClientWithCSV processes CSV file in streaming mode without loading all records in memory
 func (c *Client) StartClientWithCSV() {
+	// Open connection once at the beginning
+	if err := c.createClientSocket(); err != nil {
+		return
+	}
+	defer c.conn.Close() // Close connection when function exits
+
 	file, err := os.Open(c.config.CSVFile)
 	if err != nil {
 		log.Errorf("action: open_csv | result: fail | client_id: %v | error: %v", c.config.ID, err)
@@ -194,11 +199,8 @@ func (c *Client) StartClientWithCSV() {
 		testBatch := append(currentBatch, bet)
 		batchSize := c.calculateMessageSize(testBatch)
 
-		if len(currentBatch) >= c.config.BatchMaxAmount || batchSize > MAX_BATCH_SIZE_BYTES {
-			// Send current batch first
-			if len(currentBatch) > 0 {
-				c.sendBatch(currentBatch, false)
-			}
+		if len(testBatch) > c.config.BatchMaxAmount || batchSize > MAX_BATCH_SIZE_BYTES {
+			c.sendBatch(currentBatch, false)
 			// Start new batch with current bet
 			currentBatch = []BetMessage{bet}
 		} else {
@@ -208,7 +210,6 @@ func (c *Client) StartClientWithCSV() {
 
 		validCount++
 	}
-
 
 	if len(currentBatch) > 0 && !c.shutdownRequested {
 		c.sendBatch(currentBatch, true) // EOF = true for the last batch
@@ -223,27 +224,26 @@ func (c *Client) StartClientWithCSV() {
 		c.config.ID, recordCount, validCount, recordCount-validCount)
 }
 
-
-// sendBatch sends a batch of bets to the server
-func (c *Client) sendBatch(bets []BetMessage, eof bool) {
-	if err := c.createClientSocket(); err != nil {
-		return
-	}
-	defer c.conn.Close()
-
+// sendBatch sends a batch of bets to the server using an existing connection
+func (c *Client) sendBatch(bets []BetMessage, eof bool) error {
 	// Create batch message with agency number
 	batchMessage := NewBatchMessage(c.config.Agency, bets, eof)
 
-	// Send batch message
-	if err := SendMessage(c.conn, batchMessage); err != nil {
-		log.Errorf("action: send_batch | result: fail | client_id: %v | error: %v",
-			c.config.ID, err)
-		return
+	for i := 0; i < MAX_SEND_RETRIES; i++ {
+		// Try to send the message
+		err := SendMessage(c.conn, batchMessage)
+		if err == nil {
+			return nil // Batch sent successfully
+		}
+		// Error occurred, log it
+		log.Errorf("action: send_batch | result: fail | attempt: %d | client_id: %v | error: %v",
+			i+1, c.config.ID, err)
 	}
 
+	return fmt.Errorf("failed to send batch after %d attempts", MAX_SEND_RETRIES)
 }
 
-// requestWinners requests the list of winners from the server
+// requestWinners requests the list of winners from the server using the existing connection
 func (c *Client) requestWinners() {
 	log.Infof("action: request_winners | result: in_progress | client_id: %v | msg: waiting for lottery", c.config.ID)
 
@@ -256,18 +256,13 @@ func (c *Client) requestWinners() {
 		}
 
 		log.Infof("action: request_winners | result: in_progress | attempt: %d | client_id: %v", attempt, c.config.ID)
-		time.Sleep(retryDelay)
 
-		// Create connection for this attempt (server closes it after each request)
-		if err := c.createClientSocket(); err != nil {
-			log.Errorf("action: request_winners | result: fail | attempt: %d | client_id: %v | error: %v",
-				attempt, c.config.ID, err)
-			continue
+		if attempt > 1 {
+			time.Sleep(retryDelay)
 		}
 
-		// Ensure connection is closed when we're done with this attempt
+		// Use existing connection for this attempt
 		success := c.tryGetWinners(attempt)
-		c.conn.Close()
 
 		if success {
 			return // Successfully got winners
