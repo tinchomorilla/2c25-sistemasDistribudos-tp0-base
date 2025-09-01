@@ -59,23 +59,13 @@ func NewClient(config ClientConfig) *Client {
 
 // validateBetRecord validates a CSV record and returns true if valid
 func (c *Client) validateBetRecord(record []string, numero_aux *int) error {
-	// Field length limits (in bytes)
-	const (
-		MAX_NOMBRE_BYTES     = 50
-		MAX_APELLIDO_BYTES   = 50
-		MAX_DOCUMENTO_BYTES  = 20
-		MAX_NACIMIENTO_BYTES = 10
-		MIN_NUMERO           = 0
-		MAX_NUMERO           = 999999
-	)
-
 	// Check basic format: must have exactly 5 fields
-	if len(record) != 5 {
-		return fmt.Errorf("expected 5 fields, got %d", len(record))
+	if len(record) != EXPECTED_CSV_FIELDS {
+		return fmt.Errorf("expected %d fields, got %d", EXPECTED_CSV_FIELDS, len(record))
 	}
 
 	// Check for empty or whitespace-only fields
-	for i, field := range record[:4] {
+	for i, field := range record[:CSV_INDEX_NUMERO] {
 		trimmed := strings.TrimSpace(field)
 		if trimmed == "" {
 			return fmt.Errorf("field %d is empty or whitespace", i)
@@ -84,26 +74,26 @@ func (c *Client) validateBetRecord(record []string, numero_aux *int) error {
 	}
 
 	// Validate field lengths
-	if len(record[0]) > MAX_NOMBRE_BYTES {
-		return fmt.Errorf("nombre exceeds %d bytes: %d", MAX_NOMBRE_BYTES, len(record[0]))
+	if len(record[CSV_INDEX_NOMBRE]) > MAX_NOMBRE_BYTES {
+		return fmt.Errorf("%s exceeds %d bytes: %d", FIELD_NOMBRE, MAX_NOMBRE_BYTES, len(record[CSV_INDEX_NOMBRE]))
 	}
-	if len(record[1]) > MAX_APELLIDO_BYTES {
-		return fmt.Errorf("apellido exceeds %d bytes: %d", MAX_APELLIDO_BYTES, len(record[1]))
+	if len(record[CSV_INDEX_APELLIDO]) > MAX_APELLIDO_BYTES {
+		return fmt.Errorf("%s exceeds %d bytes: %d", FIELD_APELLIDO, MAX_APELLIDO_BYTES, len(record[CSV_INDEX_APELLIDO]))
 	}
-	if len(record[2]) > MAX_DOCUMENTO_BYTES {
-		return fmt.Errorf("documento exceeds %d bytes: %d", MAX_DOCUMENTO_BYTES, len(record[2]))
+	if len(record[CSV_INDEX_DOCUMENTO]) > MAX_DOCUMENTO_BYTES {
+		return fmt.Errorf("%s exceeds %d bytes: %d", FIELD_DOCUMENTO, MAX_DOCUMENTO_BYTES, len(record[CSV_INDEX_DOCUMENTO]))
 	}
-	if len(record[3]) > MAX_NACIMIENTO_BYTES {
-		return fmt.Errorf("nacimiento exceeds %d bytes: %d", MAX_NACIMIENTO_BYTES, len(record[3]))
+	if len(record[CSV_INDEX_NACIMIENTO]) > MAX_NACIMIENTO_BYTES {
+		return fmt.Errorf("%s exceeds %d bytes: %d", FIELD_NACIMIENTO, MAX_NACIMIENTO_BYTES, len(record[CSV_INDEX_NACIMIENTO]))
 	}
 
 	// Validate numero field
-	numero, err := strconv.Atoi(strings.TrimSpace(record[4]))
+	numero, err := strconv.Atoi(strings.TrimSpace(record[CSV_INDEX_NUMERO]))
 	if err != nil {
-		return fmt.Errorf("invalid numero: %s", record[4])
+		return fmt.Errorf("invalid %s: %s", FIELD_NUMERO, record[CSV_INDEX_NUMERO])
 	}
 	if numero < MIN_NUMERO || numero > MAX_NUMERO {
-		return fmt.Errorf("numero out of range [%d-%d]: %d", MIN_NUMERO, MAX_NUMERO, numero)
+		return fmt.Errorf("%s out of range [%d-%d]: %d", FIELD_NUMERO, MIN_NUMERO, MAX_NUMERO, numero)
 	}
 
 	*numero_aux = numero
@@ -148,10 +138,10 @@ func (c *Client) readBetsFromCSV() ([]BetMessage, error) {
 		// Create bet record with trimmed fields
 		bet := BetMessage{
 			Type:       MessageTypeBet,
-			Nombre:     record[0],
-			Apellido:   record[1],
-			Documento:  record[2],
-			Nacimiento: record[3],
+			Nombre:     record[CSV_INDEX_NOMBRE],
+			Apellido:   record[CSV_INDEX_APELLIDO],
+			Documento:  record[CSV_INDEX_DOCUMENTO],
+			Nacimiento: record[CSV_INDEX_NACIMIENTO],
 			Numero:     numero_apostado,
 		}
 		bets = append(bets, bet)
@@ -171,7 +161,7 @@ func (c *Client) calculateMessageSize(bets []BetMessage) int {
 	if err != nil {
 		return 0
 	}
-	return len(data) + 4 // +4 for length prefix
+	return len(data) + LENGTH_PREFIX_BYTES // +4 for length prefix
 }
 
 // CreateClientSocket Initializes client socket
@@ -199,7 +189,6 @@ func (c *Client) StartClientWithCSV() {
 
 	// Convert CSV records to BetMessages and send in batches
 	var currentBatch []BetMessage
-	const MAX_BATCH_SIZE_BYTES = 8 * 1024 // 8kB limit
 
 	for _, betMessage := range betsFromCSV {
 		if c.shutdownRequested {
