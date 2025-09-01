@@ -119,32 +119,50 @@ class Server:
                     self._active_threads.remove(current_thread)
 
     def __handle_client_connection(self, client_sock):
-        """Handle communication with a client and close socket"""
+        """Handle persistent communication with a client"""
         try:
             addr = client_sock.getpeername()
 
-            message = read_packet_from(client_sock)
+            # Keep connection open for multiple messages
+            while not self._shutdown_requested:
+                try:
+                    message = read_packet_from(client_sock)
 
-            # Route message based on type
-            if message.type == MESSAGE_TYPE_BATCH:
-                self._handle_batch_message(message)
-            elif message.type == MESSAGE_TYPE_GET_WINNERS:
-                self._handle_get_winners_message(message, client_sock)
-            else:
-                raise ValueError(f"Unsupported message type: {message.type}")
+                    # Route message based on type
+                    if message.type == MESSAGE_TYPE_BATCH:
+                        self._handle_batch_message(message)
+                    elif message.type == MESSAGE_TYPE_GET_WINNERS:
+                        self._handle_get_winners_message(message, client_sock)
+                    else:
+                        raise ValueError(f"Unsupported message type: {message.type}")
 
-        except ValueError as e:
-            # Invalid message format or data
-            logging.error(
-                f"action: receive_message | result: fail | ip: {addr[0]} | error: {e}"
-            )
-            send_response(client_sock, success=False, error=str(e))
+                except socket.error as e:
+                    # Client disconnected or connection error
+                    logging.info(
+                        f"action: client_disconnected | result: success | ip: {addr[0]} | reason: {e}"
+                    )
+                    break
+                except ValueError as e:
+                    # Invalid message format or data
+                    logging.error(
+                        f"action: receive_message | result: fail | ip: {addr[0]} | error: {e}"
+                    )
+                    send_response(client_sock, success=False, error=str(e))
+                    break
+                except Exception as e:
+                    # Other errors (storage, etc.)
+                    logging.error(
+                        f"action: receive_message | result: fail | ip: {addr[0]} | error: {e}"
+                    )
+                    send_response(
+                        client_sock, success=False, error="Internal server error"
+                    )
+                    break
+
         except Exception as e:
-            # Other errors (connection, storage, etc.)
             logging.error(
-                f"action: receive_message | result: fail | ip: {addr[0]} | error: {e}"
+                f"action: client_connection | result: fail | ip: {addr[0] if 'addr' in locals() else 'unknown'} | error: {e}"
             )
-            send_response(client_sock, success=False, error="Internal server error")
         finally:
             client_sock.close()
 
