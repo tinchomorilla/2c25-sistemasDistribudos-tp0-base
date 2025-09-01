@@ -114,8 +114,8 @@ func main() {
 		Agency:         v.GetInt("id"), // Agency is same as client ID
 	}
 
-	// Set default batch size if not configured or is 0
-	if clientConfig.BatchMaxAmount == 0 {
+	// Set default batch size if not configured or is less than 1
+	if clientConfig.BatchMaxAmount < 2 {
 		clientConfig.BatchMaxAmount = common.DEFAULT_BATCH_MAX_AMOUNT
 		log.Infof("action: config | result: default_batch_size | batch_max_amount: %d", clientConfig.BatchMaxAmount)
 	}
