@@ -16,7 +16,8 @@ const (
 	EXPECTED_CSV_FIELDS = 5
 
 	// Batch processing limits
-	MAX_BATCH_SIZE_BYTES = 8 * 1024 // 8KB limit 
+	MAX_BATCH_SIZE_BYTES     = 8 * 1024 // 8KB limit
+	DEFAULT_BATCH_MAX_AMOUNT = 10       // Default batch size when not configured
 
 	// CSV processing limits
 	MAX_CSV_RECORDS = 100000 // Maximum number of records to process from CSV
