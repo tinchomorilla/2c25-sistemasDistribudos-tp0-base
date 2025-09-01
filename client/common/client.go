@@ -307,7 +307,7 @@ func (c *Client) tryGetWinners(attempt int) bool {
 		return true
 	} else {
 		// Server returned an error (probably lottery not ready yet)
-		log.Infof("action: request_winners | result: retry | attempt: %d | client_id: %v | error: %v",
+		log.Infof("action: request_winners | result: in_progress | attempt: %d | client_id: %v | error: %v",
 			attempt, c.config.ID, response.Error)
 		return false
 	}
