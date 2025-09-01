@@ -20,6 +20,9 @@ class Server:
         # Shutdown flag
         self._shutdown_requested = False
 
+        # File access lock for thread-safe wrappers around utils functions
+        self._file_lock = threading.Lock()
+
         # Shared data structures with their own locks (like Arc<Mutex<T>> in Rust)
         self._finished_agencies_lock = threading.Lock()
         self._finished_agencies = (
@@ -92,7 +95,7 @@ class Server:
 
         # Store all bets at once
         if bets_to_store:
-            store_bets(bets_to_store)
+            self._store_bets_threadsafe(bets_to_store)
 
         logging.info(
             f"action: apuesta_recibida | result: success | cantidad: {len(batch_message.bets)}"
@@ -119,7 +122,7 @@ class Server:
                 self._perform_lottery()
 
     def _handle_get_winners_message(self, message, client_sock):
-        """Handle request to get winners for an agency 
+        """Handle request to get winners for an agency
 
         Returns:
             bool: True if winners were successfully sent, False if lottery not ready
@@ -173,7 +176,7 @@ class Server:
             )
 
             # Load all bets from storage
-            all_bets = list(load_bets())
+            all_bets = self._load_bets_threadsafe()
 
             # Group bets by agency and check for winners
             for bet in all_bets:
@@ -197,3 +200,14 @@ class Server:
         except Exception as e:
             logging.error(f"action: sorteo | result: fail | error: {e}")
             raise
+
+    # Thread-safe wrappers around utils functions
+    def _store_bets_threadsafe(self, bets: list[Bet]) -> None:
+        """Thread-safe wrapper around utils.store_bets()"""
+        with self._file_lock:
+            store_bets(bets)
+
+    def _load_bets_threadsafe(self) -> list[Bet]:
+        """Thread-safe wrapper around utils.load_bets()"""
+        with self._file_lock:
+            return list(load_bets())
