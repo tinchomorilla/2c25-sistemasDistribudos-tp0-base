@@ -92,9 +92,9 @@ func SendMessage(conn net.Conn, message interface{}) error {
 		return fmt.Errorf("error serializing message: %w", err)
 	}
 
-	// Send length prefix (4 bytes, big endian)
+	// Send length prefix
 	length := uint32(len(data))
-	lengthBytes := make([]byte, 4)
+	lengthBytes := make([]byte, LENGTH_PREFIX_BYTES)
 	binary.BigEndian.PutUint32(lengthBytes, length)
 
 	if _, err := conn.Write(lengthBytes); err != nil {
@@ -111,8 +111,8 @@ func SendMessage(conn net.Conn, message interface{}) error {
 
 // RecvMessage reads length-prefixed message and deserializes
 func RecvMessage(conn net.Conn, v interface{}) error {
-	// Read length prefix (4 bytes)
-	lengthBytes := make([]byte, 4)
+	// Read length prefix
+	lengthBytes := make([]byte, LENGTH_PREFIX_BYTES)
 	if _, err := readExact(conn, lengthBytes); err != nil {
 		return fmt.Errorf("error reading length: %w", err)
 	}
