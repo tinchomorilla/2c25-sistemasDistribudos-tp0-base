@@ -219,8 +219,8 @@ class Server:
             lottery_done = self._lottery_done
 
         if not lottery_done:
-            logging.error(
-                f"action: consulta_ganadores | result: fail | agency: {agency_id} | error: lottery not performed yet"
+            logging.info(
+                f"action: consulta_ganadores | result: in_progress | agency: {agency_id} | msg: lottery not performed yet"
             )
             send_response(
                 client_sock,
@@ -234,8 +234,8 @@ class Server:
             agency_finished = agency_id in self._finished_agencies
 
         if not agency_finished:
-            logging.error(
-                f"action: consulta_ganadores | result: fail | agency: {agency_id} | error: agency did not finish sending bets"
+            logging.info(
+                f"action: consulta_ganadores | result: in_progress | agency: {agency_id} | msg: agency did not finish sending bets"
             )
             send_response(
                 client_sock, success=False, error="Agency did not finish sending bets"
