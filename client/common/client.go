@@ -57,14 +57,6 @@ func NewClient(config ClientConfig) *Client {
 	return client
 }
 
-// BetRecord represents a bet record from CSV
-type BetRecord struct {
-	Nombre     string
-	Apellido   string
-	Documento  string
-	Nacimiento string
-	Numero     int
-}
 
 // validateBetRecord validates a CSV record and returns true if valid
 func (c *Client) validateBetRecord(record []string, numero_aux *int) error {
@@ -120,7 +112,7 @@ func (c *Client) validateBetRecord(record []string, numero_aux *int) error {
 }
 
 // readBetsFromCSV reads bet records from a CSV file
-func (c *Client) readBetsFromCSV() ([]BetRecord, error) {
+func (c *Client) readBetsFromCSV() ([]BetMessage, error) {
 	file, err := os.Open(c.config.CSVFile)
 	if err != nil {
 		return nil, err
@@ -128,7 +120,7 @@ func (c *Client) readBetsFromCSV() ([]BetRecord, error) {
 	defer file.Close()
 
 	reader := csv.NewReader(file)
-	var bets []BetRecord
+	var bets []BetMessage
 	recordCount := 0
 	validCount := 0
 	var numero_apostado int
@@ -155,7 +147,8 @@ func (c *Client) readBetsFromCSV() ([]BetRecord, error) {
 		}
 
 		// Create bet record with trimmed fields
-		bet := BetRecord{
+		bet := BetMessage{
+			Type:       MessageTypeBet,
 			Nombre:     record[0],
 			Apellido:   record[1],
 			Documento:  record[2],
@@ -209,23 +202,13 @@ func (c *Client) StartClientWithCSV() {
 	var currentBatch []BetMessage
 	const MAX_BATCH_SIZE_BYTES = 8 * 1024 // 8kB limit
 
-	for _, betRecord := range betsFromCSV {
+	for _, betMessage := range betsFromCSV {
 		if c.shutdownRequested {
 			break
 		}
 
-		// Create bet message from CSV record
-		betMsg := BetMessage{
-			Type:       MessageTypeBet,
-			Nombre:     betRecord.Nombre,
-			Apellido:   betRecord.Apellido,
-			Documento:  betRecord.Documento,
-			Nacimiento: betRecord.Nacimiento,
-			Numero:     betRecord.Numero,
-		}
-
 		// Check if adding this bet would exceed size or count limits
-		testBatch := append(currentBatch, betMsg)
+		testBatch := append(currentBatch, betMessage)
 		batchSize := c.calculateMessageSize(testBatch)
 
 		if len(currentBatch) >= c.config.BatchMaxAmount || batchSize > MAX_BATCH_SIZE_BYTES {
@@ -234,7 +217,7 @@ func (c *Client) StartClientWithCSV() {
 				c.sendBatch(currentBatch)
 			}
 			// Start new batch with current bet
-			currentBatch = []BetMessage{betMsg}
+			currentBatch = []BetMessage{betMessage}
 		} else {
 			// Add to current batch
 			currentBatch = testBatch
