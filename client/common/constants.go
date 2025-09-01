@@ -18,6 +18,7 @@ const (
 	// Batch processing limits
 	MAX_BATCH_SIZE_BYTES     = 8 * 1024 // 8KB limit
 	DEFAULT_BATCH_MAX_AMOUNT = 10       // Default batch size when not configured
+	MAX_SEND_RETRIES         = 3        // Maximum retries for sending messages
 
 	// CSV processing limits
 	MAX_CSV_RECORDS = 100000 // Maximum number of records to process from CSV
