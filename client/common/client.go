@@ -57,7 +57,6 @@ func NewClient(config ClientConfig) *Client {
 	return client
 }
 
-
 // validateBetRecord validates a CSV record and returns true if valid
 func (c *Client) validateBetRecord(record []string, numero_aux *int) error {
 	// Field length limits (in bytes)
@@ -66,7 +65,7 @@ func (c *Client) validateBetRecord(record []string, numero_aux *int) error {
 		MAX_APELLIDO_BYTES   = 50
 		MAX_DOCUMENTO_BYTES  = 20
 		MAX_NACIMIENTO_BYTES = 10
-		MIN_NUMERO           = 1
+		MIN_NUMERO           = 0
 		MAX_NUMERO           = 999999
 	)
 
