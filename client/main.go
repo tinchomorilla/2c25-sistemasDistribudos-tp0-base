@@ -119,7 +119,7 @@ func main() {
 
 	client := common.NewClient(clientConfig)
 
-	// Exercise 6: Always use CSV batch processing
+	// Always use CSV batch processing
 	client.StartClientWithCSV()
 
 }
