@@ -28,7 +28,7 @@ type ClientConfig struct {
 	Agency         int
 }
 
-// Client Entity that encapsulates how
+// Client Entity
 type Client struct {
 	config            ClientConfig
 	conn              net.Conn
@@ -43,6 +43,7 @@ func NewClient(config ClientConfig) *Client {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
 
+	// Goroutine to handle shutdown signal
 	go func() {
 		<-sigChan
 		log.Infof("action: shutdown | result: in_progress | client_id: %v | msg: received SIGTERM", client.config.ID)
@@ -178,7 +179,7 @@ func (c *Client) createClientSocket() error {
 	return nil
 }
 
-// StartClientLoopWithCSV reads bets from CSV and sends them in batches (Exercise 6)
+// StartClientWithCSV reads bets from CSV and sends them in batches 
 func (c *Client) StartClientWithCSV() {
 	// Read bets from CSV file
 	betsFromCSV, err := c.readBetsFromCSV()
@@ -225,7 +226,7 @@ func (c *Client) sendBatch(bets []BetMessage) {
 	if err := c.createClientSocket(); err != nil {
 		return
 	}
-	defer c.conn.Close()
+	defer c.conn.Close() // close connection after sending batch
 
 	// Create batch message with agency number
 	batchMessage := NewBatchMessage(c.config.Agency, bets, false)
