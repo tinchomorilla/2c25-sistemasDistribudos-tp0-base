@@ -52,10 +52,11 @@ class BatchMessage:
         if len(data) < 1 or data[0] != MESSAGE_TYPE_BATCH:
             raise ValueError("Invalid batch message")
 
+        # Example data[1:]: 2|1|2|John|Doe|123|1990-01-01|42|Jane|Smith|456|1992-02-02|42
         content = data[1:].decode("utf-8")
         parts = content.split("|")
 
-        if len(parts) < 3:
+        if len(parts) < 3: # Check for agency, eof, and bet_count
             raise ValueError("Invalid batch message format")
 
         agency = int(parts[0])
@@ -63,9 +64,9 @@ class BatchMessage:
         bet_count = int(parts[2])
 
         bets = []
-        idx = 3
+        idx = 3 # Skip agency, eof, and bet_count
         for _ in range(bet_count):
-            if idx + 4 >= len(parts):
+            if idx + 4 >= len(parts): 
                 break
             bet = BetMessage(
                 nombre=parts[idx],
@@ -75,7 +76,7 @@ class BatchMessage:
                 numero=int(parts[idx + 4]),
             )
             bets.append(bet)
-            idx += 5
+            idx += 5 # Move to the next bet
 
         return cls(agency, bets, eof)
 
