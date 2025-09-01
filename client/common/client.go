@@ -2,11 +2,13 @@ package common
 
 import (
 	"encoding/csv"
+	"fmt"
 	"io"
 	"net"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -41,6 +43,7 @@ func NewClient(config ClientConfig) *Client {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
 
+	// Goroutine to handle shutdown signal
 	go func() {
 		<-sigChan
 		log.Infof("action: shutdown | result: in_progress | client_id: %v | msg: received SIGTERM", client.config.ID)
@@ -64,53 +67,6 @@ type BetRecord struct {
 	Numero     int
 }
 
-// readBetsFromCSV reads bet records from a CSV file
-func (c *Client) readBetsFromCSV() ([]BetRecord, error) {
-	file, err := os.Open(c.config.CSVFile)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	reader := csv.NewReader(file)
-	var bets []BetRecord
-
-	for {
-
-		if c.shutdownRequested {
-			break
-		}
-
-		record, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		// Assuming CSV format: nombre,apellido,documento,nacimiento,numero
-		if len(record) != 5 {
-			continue // Skip malformed records
-		}
-
-		numero, err := strconv.Atoi(record[4])
-		if err != nil {
-			continue // Skip records with invalid numbers
-		}
-
-		bet := BetRecord{
-			Nombre:     record[0],
-			Apellido:   record[1],
-			Documento:  record[2],
-			Nacimiento: record[3],
-			Numero:     numero,
-		}
-		bets = append(bets, bet)
-	}
-
-	return bets, nil
-}
 
 // calculateMessageSize estimates the custom protocol size of a batch message
 func (c *Client) calculateMessageSize(bets []BetMessage) int {
@@ -136,51 +92,123 @@ func (c *Client) createClientSocket() error {
 	return nil
 }
 
-// StartClientLoopWithCSV reads bets from CSV and sends them in batches (Exercise 6 & 7)
-func (c *Client) StartClientWithCSV() {
-	log.Infof("action: start_csv_client | result: in_progress | client_id: %v | csv_file: %s", c.config.ID, c.config.CSVFile)
-
-	// Read bets from CSV file
-	betsFromCSV, err := c.readBetsFromCSV()
-	if err != nil {
-		log.Errorf("action: read_csv | result: fail | client_id: %v | error: %v", c.config.ID, err)
-		return
+// validateBetRecord validates a CSV record and returns true if valid
+func (c *Client) validateBetRecord(record []string, numero_aux *int) error {
+	// Check basic format: must have exactly 5 fields
+	if len(record) != EXPECTED_CSV_FIELDS {
+		return fmt.Errorf("expected %d fields, got %d", EXPECTED_CSV_FIELDS, len(record))
 	}
 
-	log.Infof("action: read_csv | result: success | client_id: %v | bets_count: %d", c.config.ID, len(betsFromCSV))
+	// Check for empty or whitespace-only fields
+	for i, field := range record[:CSV_INDEX_NUMERO] {
+		trimmed := strings.TrimSpace(field)
+		if trimmed == "" {
+			return fmt.Errorf("field %d is empty or whitespace", i)
+		}
+		record[i] = trimmed // Update with trimmed value
+	}
 
-	// Convert CSV records to BetMessages and send in batches
+	// Validate field lengths
+	if len(record[CSV_INDEX_NOMBRE]) > MAX_NOMBRE_BYTES {
+		return fmt.Errorf("%s exceeds %d bytes: %d", FIELD_NOMBRE, MAX_NOMBRE_BYTES, len(record[CSV_INDEX_NOMBRE]))
+	}
+	if len(record[CSV_INDEX_APELLIDO]) > MAX_APELLIDO_BYTES {
+		return fmt.Errorf("%s exceeds %d bytes: %d", FIELD_APELLIDO, MAX_APELLIDO_BYTES, len(record[CSV_INDEX_APELLIDO]))
+	}
+	if len(record[CSV_INDEX_DOCUMENTO]) > MAX_DOCUMENTO_BYTES {
+		return fmt.Errorf("%s exceeds %d bytes: %d", FIELD_DOCUMENTO, MAX_DOCUMENTO_BYTES, len(record[CSV_INDEX_DOCUMENTO]))
+	}
+	if len(record[CSV_INDEX_NACIMIENTO]) > MAX_NACIMIENTO_BYTES {
+		return fmt.Errorf("%s exceeds %d bytes: %d", FIELD_NACIMIENTO, MAX_NACIMIENTO_BYTES, len(record[CSV_INDEX_NACIMIENTO]))
+	}
+
+	// Validate numero field
+	numero, err := strconv.Atoi(strings.TrimSpace(record[CSV_INDEX_NUMERO]))
+	if err != nil {
+		return fmt.Errorf("invalid %s: %s", FIELD_NUMERO, record[CSV_INDEX_NUMERO])
+	}
+	if numero < MIN_NUMERO || numero > MAX_NUMERO {
+		return fmt.Errorf("%s out of range [%d-%d]: %d", FIELD_NUMERO, MIN_NUMERO, MAX_NUMERO, numero)
+	}
+
+	*numero_aux = numero
+	return nil
+}
+
+// StartClientWithCSV processes CSV file in streaming mode without loading all records in memory
+func (c *Client) StartClientWithCSV() {
+	file, err := os.Open(c.config.CSVFile)
+	if err != nil {
+		log.Errorf("action: open_csv | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
 	var currentBatch []BetMessage
-	const MAX_BATCH_SIZE_BYTES = 8 * 1024 // 8kB limit
+	recordCount := 0
+	validCount := 0
+	var numero_apostado int
 
-	for _, betRecord := range betsFromCSV {
+	for {
 		if c.shutdownRequested {
 			break
 		}
 
-		// Create bet message from CSV record
-		betMsg := BetMessage{
+		// Check if we've reached the maximum number of valid records
+		if validCount >= MAX_CSV_RECORDS {
+			log.Infof("action: read_csv_streaming | result: limit_reached | client_id: %v | max_records: %d | stopping early",
+				c.config.ID, MAX_CSV_RECORDS)
+			break
+		}
+
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Errorf("action: read_csv_streaming | result: fail | client_id: %v | error: %v", c.config.ID, err)
+			return
+		}
+
+		recordCount++
+
+		// Validate record using our validation function
+		if err := c.validateBetRecord(record, &numero_apostado); err != nil {
+			log.Debugf("action: validate_record | result: fail | line: %d | error: %v",
+				recordCount, err)
+			continue // Skip invalid records
+		}
+
+		// Create bet record with trimmed fields
+		bet := BetMessage{
 			Type:       MessageTypeBet,
-			Nombre:     betRecord.Nombre,
-			Apellido:   betRecord.Apellido,
-			Documento:  betRecord.Documento,
-			Nacimiento: betRecord.Nacimiento,
-			Numero:     betRecord.Numero,
+			Nombre:     record[CSV_INDEX_NOMBRE],
+			Apellido:   record[CSV_INDEX_APELLIDO],
+			Documento:  record[CSV_INDEX_DOCUMENTO],
+			Nacimiento: record[CSV_INDEX_NACIMIENTO],
+			Numero:     numero_apostado,
 		}
 
 		// Check if adding this bet would exceed size or count limits
-		testBatch := append(currentBatch, betMsg)
+		testBatch := append(currentBatch, bet)
 		batchSize := c.calculateMessageSize(testBatch)
 
-		if len(testBatch) > c.config.BatchMaxAmount || batchSize > MAX_BATCH_SIZE_BYTES {
-			c.sendBatch(currentBatch, false)
+		if len(currentBatch) >= c.config.BatchMaxAmount || batchSize > MAX_BATCH_SIZE_BYTES {
+			// Send current batch first
+			if len(currentBatch) > 0 {
+				c.sendBatch(currentBatch, false)
+			}
 			// Start new batch with current bet
-			currentBatch = []BetMessage{betMsg}
+			currentBatch = []BetMessage{bet}
 		} else {
 			// Add to current batch
 			currentBatch = testBatch
 		}
+
+		validCount++
 	}
+
 
 	if len(currentBatch) > 0 && !c.shutdownRequested {
 		c.sendBatch(currentBatch, true) // EOF = true for the last batch
@@ -191,8 +219,10 @@ func (c *Client) StartClientWithCSV() {
 		c.requestWinners()
 	}
 
-	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+	log.Infof("action: csv_streaming_finished | result: success | client_id: %v | total_records: %d | valid_records: %d | skipped: %d",
+		c.config.ID, recordCount, validCount, recordCount-validCount)
 }
+
 
 // sendBatch sends a batch of bets to the server
 func (c *Client) sendBatch(bets []BetMessage, eof bool) {
