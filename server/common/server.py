@@ -3,14 +3,11 @@ import logging
 import signal
 import os
 import threading
-import time
 from .protocol import (
-    read_packet_from,
     send_response,
-    MESSAGE_TYPE_BATCH,
-    MESSAGE_TYPE_GET_WINNERS,
 )
 from .utils import Bet, store_bets, load_bets, has_won
+from .listener import Listener
 
 
 class Server:
@@ -20,13 +17,8 @@ class Server:
         self._server_socket.bind(("", port))
         self._server_socket.listen(listen_backlog)
 
-        # Track active connections and threads for graceful shutdown
-        self._active_connections = []
-        self._active_threads = []
+        # Shutdown flag
         self._shutdown_requested = False
-
-        # Thread safety - individual locks for each shared data structure
-        self._connections_lock = threading.Lock()
 
         # Shared data structures with their own locks (like Arc<Mutex<T>> in Rust)
         self._finished_agencies_lock = threading.Lock()
@@ -65,106 +57,22 @@ class Server:
             )
 
     def run(self):
-        """Main server loop with graceful shutdown support and concurrent connection handling"""
-        while not self._shutdown_requested:
-            try:
-                client_sock = self.__accept_new_connection()
-                if client_sock and not self._shutdown_requested:
-                    # Create a new thread to handle this connection
-                    client_thread = threading.Thread(
-                        target=self.__handle_client_connection_threaded,
-                        args=(client_sock,),
-                        daemon=True,
-                    )
+        """Main server entry point - delegates to the listener"""
+        # Create server callbacks for the client handlers
+        server_callbacks = {
+            "handle_batch_message": self._handle_batch_message,
+            "handle_get_winners_message": self._handle_get_winners_message,
+        }
 
-                    # Track the thread and connection
-                    with self._connections_lock:
-                        self._active_connections.append(client_sock)
-                        self._active_threads.append(client_thread)
-
-                    # Start the thread
-                    client_thread.start()
-
-            except socket.error:
-                # Server socket was likely closed due to shutdown
-                if self._shutdown_requested:
-                    break
-                else:
-                    logging.error(
-                        "action: accept_connections | result: fail | error: socket error"
-                    )
-            except Exception as e:
-                if not self._shutdown_requested:
-                    logging.error(f"action: server_loop | result: fail | error: {e}")
-
-        # Wait for all threads to complete and final cleanup
-        self._wait_for_threads()
-        self._cleanup_connections()
-        logging.info(
-            "action: shutdown | result: success | msg: graceful shutdown completed"
+        # Create and start the listener
+        listener = Listener(
+            server_socket=self._server_socket,
+            shutdown_callback=lambda: self._shutdown_requested,
+            server_callbacks=server_callbacks,
         )
 
-    def __handle_client_connection_threaded(self, client_sock):
-        """Thread-safe wrapper for handling client connections"""
-        try:
-            self.__handle_client_connection(client_sock)
-        finally:
-            # Clean up connection and thread tracking
-            with self._connections_lock:
-                if client_sock in self._active_connections:
-                    self._active_connections.remove(client_sock)
-                # Remove current thread from tracking
-                current_thread = threading.current_thread()
-                if current_thread in self._active_threads:
-                    self._active_threads.remove(current_thread)
-
-    def __handle_client_connection(self, client_sock):
-        """Handle persistent communication with a client"""
-        try:
-            addr = client_sock.getpeername()
-
-            # Keep connection open for multiple messages
-            while not self._shutdown_requested:
-                try:
-                    message = read_packet_from(client_sock)
-
-                    # Route message based on type
-                    if message.type == MESSAGE_TYPE_BATCH:
-                        self._handle_batch_message(message)
-                    elif message.type == MESSAGE_TYPE_GET_WINNERS:
-                        self._handle_get_winners_message(message, client_sock)
-                    else:
-                        raise ValueError(f"Unsupported message type: {message.type}")
-
-                except socket.error as e:
-                    # Client disconnected or connection error
-                    logging.info(
-                        f"action: client_disconnected | result: success | ip: {addr[0]} | reason: {e}"
-                    )
-                    break
-                except ValueError as e:
-                    # Invalid message format or data
-                    logging.error(
-                        f"action: receive_message | result: fail | ip: {addr[0]} | error: {e}"
-                    )
-                    send_response(client_sock, success=False, error=str(e))
-                    break
-                except Exception as e:
-                    # Other errors (storage, etc.)
-                    logging.error(
-                        f"action: receive_message | result: fail | ip: {addr[0]} | error: {e}"
-                    )
-                    send_response(
-                        client_sock, success=False, error="Internal server error"
-                    )
-                    break
-
-        except Exception as e:
-            logging.error(
-                f"action: client_connection | result: fail | ip: {addr[0] if 'addr' in locals() else 'unknown'} | error: {e}"
-            )
-        finally:
-            client_sock.close()
+        # Start listening for connections
+        listener.run()
 
     def _handle_batch_message(self, batch_message):
         """Handle batch of bets with EOF detection"""
@@ -211,7 +119,11 @@ class Server:
                 self._perform_lottery()
 
     def _handle_get_winners_message(self, message, client_sock):
-        """Handle request to get winners for an agency - thread safe"""
+        """Handle request to get winners for an agency 
+
+        Returns:
+            bool: True if winners were successfully sent, False if lottery not ready
+        """
         agency_id = message.agency
 
         # Check if lottery has been performed
@@ -227,7 +139,7 @@ class Server:
                 success=False,
                 error="Lottery not performed yet. All agencies must finish first.",
             )
-            return
+            return False  # Lottery not ready, client should keep trying
 
         # Check if requesting agency finished their bets
         with self._finished_agencies_lock:
@@ -240,7 +152,7 @@ class Server:
             send_response(
                 client_sock, success=False, error="Agency did not finish sending bets"
             )
-            return
+            return False  # Agency not finished, client should keep trying
 
         # Get winners for this agency
         winners = self._winners_by_agency.get(agency_id, []).copy()
@@ -250,6 +162,7 @@ class Server:
         )
 
         send_response(client_sock, success=True, winners=winners)
+        return True  # Successfully sent winners, client session complete
 
     def _perform_lottery(self):
         """Perform the lottery once all agencies have finished"""
@@ -288,49 +201,3 @@ class Server:
         except Exception as e:
             logging.error(f"action: sorteo | result: fail | error: {e}")
             raise
-
-    def __accept_new_connection(self):
-        """Accept new connections (blocking call)"""
-        logging.info("action: accept_connections | result: in_progress")
-        c, addr = self._server_socket.accept()
-        logging.info(f"action: accept_connections | result: success | ip: {addr[0]}")
-        return c
-
-    def _wait_for_threads(self):
-        """Wait for all active threads to complete"""
-        logging.info(
-            "action: shutdown | result: in_progress | msg: waiting for threads to complete"
-        )
-
-        with self._connections_lock:
-            threads_to_wait = self._active_threads.copy()
-
-        for thread in threads_to_wait:
-            try:
-                # Wait up to 5 seconds for each thread to complete
-                thread.join(timeout=5.0)
-                if thread.is_alive():
-                    logging.warning(
-                        f"action: shutdown | result: warning | msg: thread did not complete in time"
-                    )
-            except Exception as e:
-                logging.error(
-                    f"action: shutdown | result: fail | msg: error waiting for thread | error: {e}"
-                )
-
-    def _cleanup_connections(self):
-        """Close all active client connections"""
-        with self._connections_lock:
-            connections_to_close = self._active_connections.copy()
-            self._active_connections.clear()
-
-        for client_sock in connections_to_close:
-            try:
-                client_sock.close()
-                logging.info(
-                    "action: shutdown | result: success | msg: client connection closed"
-                )
-            except Exception as e:
-                logging.error(
-                    f"action: shutdown | result: fail | msg: error closing client connection | error: {e}"
-                )
