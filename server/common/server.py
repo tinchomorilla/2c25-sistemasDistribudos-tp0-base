@@ -166,10 +166,6 @@ class Server:
 
     def _perform_lottery(self):
         """Perform the lottery once all agencies have finished"""
-        # Double-check that lottery hasn't been performed already
-        with self._lottery_done_lock:
-            if self._lottery_done:
-                return
 
         try:
             logging.info(
