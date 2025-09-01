@@ -16,7 +16,10 @@ const (
 	EXPECTED_CSV_FIELDS = 5
 
 	// Batch processing limits
-	MAX_BATCH_SIZE_BYTES = 8 * 1024 // 8KB limit for Exercise 6
+	MAX_BATCH_SIZE_BYTES = 8 * 1024 // 8KB limit 
+
+	// CSV processing limits
+	MAX_CSV_RECORDS = 100000 // Maximum number of records to process from CSV
 
 	// Protocol constants
 	LENGTH_PREFIX_BYTES = 4 // Length prefix size in bytes
