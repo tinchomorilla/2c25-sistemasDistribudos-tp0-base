@@ -1,4 +1,4 @@
-module github.com/7574-sistemas-distribuidos/docker-compose-init
+module github.com/tinchomorilla/2c25-sistemasDistribudos-tp0-base
 
 go 1.17
 
