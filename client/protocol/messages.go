@@ -1,4 +1,4 @@
-package common
+package protocol
 
 // MessageType represents the type of message being sent
 type MessageType byte

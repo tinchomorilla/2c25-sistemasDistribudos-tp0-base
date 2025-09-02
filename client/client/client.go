@@ -1,4 +1,4 @@
-package common
+package client
 
 import (
 	"encoding/csv"
@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/op/go-logging"
+	"github.com/tinchomorilla/2c25-sistemasDistribudos-tp0-base/client/common"
+	"github.com/tinchomorilla/2c25-sistemasDistribudos-tp0-base/client/protocol"
 )
 
 var log = logging.MustGetLogger("log")
@@ -68,9 +70,9 @@ type BetRecord struct {
 }
 
 // calculateMessageSize estimates the custom protocol size of a batch message
-func (c *Client) calculateMessageSize(bets []BetMessage) int {
-	batch := NewBatchMessage(c.config.Agency, bets, false) // Use false for size calculation
-	data, err := SerializeMessage(batch)
+func (c *Client) calculateMessageSize(bets []protocol.BetMessage) int {
+	batch := protocol.NewBatchMessage(c.config.Agency, bets, false) // Use false for size calculation
+	data, err := protocol.SerializeMessage(batch)
 	if err != nil {
 		return 0
 	}
@@ -94,12 +96,12 @@ func (c *Client) createClientSocket() error {
 // validateBetRecord validates a CSV record and returns true if valid
 func (c *Client) validateBetRecord(record []string, numero_aux *int) error {
 	// Check basic format: must have exactly 5 fields
-	if len(record) != EXPECTED_CSV_FIELDS {
-		return fmt.Errorf("expected %d fields, got %d", EXPECTED_CSV_FIELDS, len(record))
+	if len(record) != common.EXPECTED_CSV_FIELDS {
+		return fmt.Errorf("expected %d fields, got %d", common.EXPECTED_CSV_FIELDS, len(record))
 	}
 
 	// Check for empty or whitespace-only fields
-	for i, field := range record[:CSV_INDEX_NUMERO] {
+	for i, field := range record[:common.CSV_INDEX_NUMERO] {
 		trimmed := strings.TrimSpace(field)
 		if trimmed == "" {
 			return fmt.Errorf("field %d is empty or whitespace", i)
@@ -108,26 +110,26 @@ func (c *Client) validateBetRecord(record []string, numero_aux *int) error {
 	}
 
 	// Validate field lengths
-	if len(record[CSV_INDEX_NOMBRE]) > MAX_NOMBRE_BYTES {
-		return fmt.Errorf("%s exceeds %d bytes: %d", FIELD_NOMBRE, MAX_NOMBRE_BYTES, len(record[CSV_INDEX_NOMBRE]))
+	if len(record[common.CSV_INDEX_NOMBRE]) > common.MAX_NOMBRE_BYTES {
+		return fmt.Errorf("%s exceeds %d bytes: %d", common.FIELD_NOMBRE, common.MAX_NOMBRE_BYTES, len(record[common.CSV_INDEX_NOMBRE]))
 	}
-	if len(record[CSV_INDEX_APELLIDO]) > MAX_APELLIDO_BYTES {
-		return fmt.Errorf("%s exceeds %d bytes: %d", FIELD_APELLIDO, MAX_APELLIDO_BYTES, len(record[CSV_INDEX_APELLIDO]))
+	if len(record[common.CSV_INDEX_APELLIDO]) > common.MAX_APELLIDO_BYTES {
+		return fmt.Errorf("%s exceeds %d bytes: %d", common.FIELD_APELLIDO, common.MAX_APELLIDO_BYTES, len(record[common.CSV_INDEX_APELLIDO]))
 	}
-	if len(record[CSV_INDEX_DOCUMENTO]) > MAX_DOCUMENTO_BYTES {
-		return fmt.Errorf("%s exceeds %d bytes: %d", FIELD_DOCUMENTO, MAX_DOCUMENTO_BYTES, len(record[CSV_INDEX_DOCUMENTO]))
+	if len(record[common.CSV_INDEX_DOCUMENTO]) > common.MAX_DOCUMENTO_BYTES {
+		return fmt.Errorf("%s exceeds %d bytes: %d", common.FIELD_DOCUMENTO, common.MAX_DOCUMENTO_BYTES, len(record[common.CSV_INDEX_DOCUMENTO]))
 	}
-	if len(record[CSV_INDEX_NACIMIENTO]) > MAX_NACIMIENTO_BYTES {
-		return fmt.Errorf("%s exceeds %d bytes: %d", FIELD_NACIMIENTO, MAX_NACIMIENTO_BYTES, len(record[CSV_INDEX_NACIMIENTO]))
+	if len(record[common.CSV_INDEX_NACIMIENTO]) > common.MAX_NACIMIENTO_BYTES {
+		return fmt.Errorf("%s exceeds %d bytes: %d", common.FIELD_NACIMIENTO, common.MAX_NACIMIENTO_BYTES, len(record[common.CSV_INDEX_NACIMIENTO]))
 	}
 
 	// Validate numero field
-	numero, err := strconv.Atoi(strings.TrimSpace(record[CSV_INDEX_NUMERO]))
+	numero, err := strconv.Atoi(strings.TrimSpace(record[common.CSV_INDEX_NUMERO]))
 	if err != nil {
-		return fmt.Errorf("invalid %s: %s", FIELD_NUMERO, record[CSV_INDEX_NUMERO])
+		return fmt.Errorf("invalid %s: %s", common.FIELD_NUMERO, record[common.CSV_INDEX_NUMERO])
 	}
-	if numero < MIN_NUMERO || numero > MAX_NUMERO {
-		return fmt.Errorf("%s out of range [%d-%d]: %d", FIELD_NUMERO, MIN_NUMERO, MAX_NUMERO, numero)
+	if numero < common.MIN_NUMERO || numero > common.MAX_NUMERO {
+		return fmt.Errorf("%s out of range [%d-%d]: %d", common.FIELD_NUMERO, common.MIN_NUMERO, common.MAX_NUMERO, numero)
 	}
 
 	*numero_aux = numero
@@ -150,7 +152,7 @@ func (c *Client) StartClientWithCSV() {
 	defer file.Close()
 
 	reader := csv.NewReader(file)
-	var currentBatch []BetMessage
+	var currentBatch []protocol.BetMessage
 	recordCount := 0
 	validCount := 0
 	var numero_apostado int
@@ -161,9 +163,9 @@ func (c *Client) StartClientWithCSV() {
 		}
 
 		// Check if we've reached the maximum number of valid records
-		if validCount >= MAX_CSV_RECORDS {
+		if validCount >= common.MAX_CSV_RECORDS {
 			log.Infof("action: read_csv_streaming | result: limit_reached | client_id: %v | max_records: %d | stopping early",
-				c.config.ID, MAX_CSV_RECORDS)
+				c.config.ID, common.MAX_CSV_RECORDS)
 			break
 		}
 
@@ -186,12 +188,12 @@ func (c *Client) StartClientWithCSV() {
 		}
 
 		// Create bet record with trimmed fields
-		bet := BetMessage{
-			Type:       MessageTypeBet,
-			Nombre:     record[CSV_INDEX_NOMBRE],
-			Apellido:   record[CSV_INDEX_APELLIDO],
-			Documento:  record[CSV_INDEX_DOCUMENTO],
-			Nacimiento: record[CSV_INDEX_NACIMIENTO],
+		bet := protocol.BetMessage{
+			Type:       protocol.MessageTypeBet,
+			Nombre:     record[common.CSV_INDEX_NOMBRE],
+			Apellido:   record[common.CSV_INDEX_APELLIDO],
+			Documento:  record[common.CSV_INDEX_DOCUMENTO],
+			Nacimiento: record[common.CSV_INDEX_NACIMIENTO],
 			Numero:     numero_apostado,
 		}
 
@@ -199,10 +201,10 @@ func (c *Client) StartClientWithCSV() {
 		testBatch := append(currentBatch, bet)
 		batchSize := c.calculateMessageSize(testBatch)
 
-		if len(testBatch) > c.config.BatchMaxAmount || batchSize > MAX_BATCH_SIZE_BYTES {
+		if len(testBatch) > c.config.BatchMaxAmount || batchSize > common.MAX_BATCH_SIZE_BYTES {
 			c.sendBatch(currentBatch, false)
 			// Start new batch with current bet
-			currentBatch = []BetMessage{bet}
+			currentBatch = []protocol.BetMessage{bet}
 		} else {
 			// Add to current batch
 			currentBatch = testBatch
@@ -225,13 +227,13 @@ func (c *Client) StartClientWithCSV() {
 }
 
 // sendBatch sends a batch of bets to the server using an existing connection
-func (c *Client) sendBatch(bets []BetMessage, eof bool) error {
+func (c *Client) sendBatch(bets []protocol.BetMessage, eof bool) error {
 	// Create batch message with agency number
-	batchMessage := NewBatchMessage(c.config.Agency, bets, eof)
+	batchMessage := protocol.NewBatchMessage(c.config.Agency, bets, eof)
 
-	for i := 0; i < MAX_SEND_RETRIES; i++ {
+	for i := 0; i < common.MAX_SEND_RETRIES; i++ {
 		// Try to send the message
-		err := SendMessage(c.conn, batchMessage)
+		err := protocol.SendMessage(c.conn, batchMessage)
 		if err == nil {
 			return nil // Batch sent successfully
 		}
@@ -240,7 +242,7 @@ func (c *Client) sendBatch(bets []BetMessage, eof bool) error {
 			i+1, c.config.ID, err)
 	}
 
-	return fmt.Errorf("failed to send batch after %d attempts", MAX_SEND_RETRIES)
+	return fmt.Errorf("failed to send batch after %d attempts", common.MAX_SEND_RETRIES)
 }
 
 // requestWinners requests the list of winners from the server using the existing connection
@@ -279,18 +281,18 @@ func (c *Client) requestWinners() {
 // tryGetWinners attempts to get winners using the current connection
 func (c *Client) tryGetWinners(attempt int) bool {
 	// Create get winners message
-	winnersMessage := NewGetWinnersMessage(c.config.Agency)
+	winnersMessage := protocol.NewGetWinnersMessage(c.config.Agency)
 
 	// Send get winners message
-	if err := SendMessage(c.conn, winnersMessage); err != nil {
+	if err := protocol.SendMessage(c.conn, winnersMessage); err != nil {
 		log.Errorf("action: request_winners | result: fail | attempt: %d | client_id: %v | error: %v",
 			attempt, c.config.ID, err)
 		return false
 	}
 
 	// Wait for server response
-	var response ResponseMessage
-	if err := RecvMessage(c.conn, &response); err != nil {
+	var response protocol.ResponseMessage
+	if err := protocol.RecvMessage(c.conn, &response); err != nil {
 		if c.shutdownRequested {
 			return false
 		}

@@ -1,4 +1,4 @@
-package common
+package protocol
 
 import (
 	"encoding/binary"
@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"github.com/tinchomorilla/2c25-sistemasDistribudos-tp0-base/client/common"
 )
 
 // SerializeMessage converts a message to custom protocol format
@@ -94,7 +95,7 @@ func SendMessage(conn net.Conn, message interface{}) error {
 
 	// Send length prefix
 	length := uint32(len(data))
-	lengthBytes := make([]byte, LENGTH_PREFIX_BYTES)
+	lengthBytes := make([]byte, common.LENGTH_PREFIX_BYTES)
 	binary.BigEndian.PutUint32(lengthBytes, length)
 
 	if _, err := conn.Write(lengthBytes); err != nil {
@@ -112,7 +113,7 @@ func SendMessage(conn net.Conn, message interface{}) error {
 // RecvMessage reads length-prefixed message and deserializes
 func RecvMessage(conn net.Conn, v interface{}) error {
 	// Read length prefix
-	lengthBytes := make([]byte, LENGTH_PREFIX_BYTES)
+	lengthBytes := make([]byte, common.LENGTH_PREFIX_BYTES)
 	if _, err := readExact(conn, lengthBytes); err != nil {
 		return fmt.Errorf("error reading length: %w", err)
 	}

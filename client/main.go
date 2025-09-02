@@ -10,7 +10,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
 
-	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/common"
+	"github.com/tinchomorilla/2c25-sistemasDistribudos-tp0-base/client/client"
+	"github.com/tinchomorilla/2c25-sistemasDistribudos-tp0-base/client/common"
 )
 
 var log = logging.MustGetLogger("log")
@@ -105,7 +106,7 @@ func main() {
 	// Print program config with debugging purposes
 	PrintConfig(v)
 
-	clientConfig := common.ClientConfig{
+	clientConfig := client.ClientConfig{
 		ServerAddress:  v.GetString("server.address"),
 		ID:             v.GetString("id"),
 		LoopAmount:     v.GetInt("loop.amount"),
@@ -123,7 +124,7 @@ func main() {
 	// Set CSV file path from environment variable (set by docker-compose)
 	clientConfig.CSVFile = v.GetString("csv.file")
 
-	client := common.NewClient(clientConfig)
+	client := client.NewClient(clientConfig)
 
 	// Always use CSV batch processing
 	client.StartClientWithCSV()
