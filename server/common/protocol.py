@@ -18,8 +18,7 @@ def read_packet_from(client_socket):
     """Read length-prefixed packet and parse message"""
     # Read length prefix (4 bytes)
     length_data = _read_exact(client_socket, 4)
-    length = struct.unpack(">I", length_data)[0]
-
+    length = int.from_bytes(length_data, byteorder='big')
     # Read message data
     data = _read_exact(client_socket, length)
 
@@ -66,7 +65,7 @@ def send_response(client_socket, success, error=None, winners=None):
 
     # Send length-prefixed message
     length = len(data)
-    length_bytes = struct.pack(">I", length)
+    length_bytes = length.to_bytes(4, byteorder='big')
 
     client_socket.send(length_bytes)
     client_socket.send(data)
