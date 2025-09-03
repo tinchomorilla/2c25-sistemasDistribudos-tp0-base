@@ -103,7 +103,10 @@ func (c *Client) createClientSocket() error {
 	return nil
 }
 
-// StartClientWithCSV processes CSV file in streaming mode without loading all records in memory
+// Main function:
+// It processes the CSV file in streaming mode. Just store one batch in memory at a time
+// Once the CSV is fully processed (all valid bets sent), asks the server for the winners
+// Finally, we close the connection and the CSV file
 func (c *Client) StartClientWithCSV() {
 	defer c.conn.Close() // Close the connection
 	defer c.fileManager.Close() // Close the file
