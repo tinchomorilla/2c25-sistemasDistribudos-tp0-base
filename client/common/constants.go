@@ -21,7 +21,7 @@ const (
 	MAX_SEND_RETRIES         = 3        // Maximum retries for sending messages
 
 	// CSV processing limits
-	MAX_CSV_RECORDS = 100000 // Maximum number of records to process from CSV
+	MAX_CSV_RECORDS = 100000 // Maximum number of valid records to process from CSV
 
 	// Protocol constants
 	LENGTH_PREFIX_BYTES = 4 // Length prefix size in bytes
