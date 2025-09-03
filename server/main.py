@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 
 from configparser import ConfigParser
-from common.server import Server
+from server.server import Server
 import logging
 import os
-import signal
 import sys
 
 
@@ -73,7 +72,7 @@ def main():
         # The server's signal handler will handle the graceful shutdown
     except Exception as e:
         logging.error(f"action: server_main | result: fail | error: {e}")
-        sys.exit(1)
+    
 
 
 def initialize_log(logging_level):
