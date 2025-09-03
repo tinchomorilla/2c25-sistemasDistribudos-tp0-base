@@ -2,10 +2,10 @@ import socket
 import logging
 import os
 import threading
-from ..protocol.protocol import (
+from protocol.protocol import (
     send_response,
 )
-from ..common.utils import Bet, store_bets, load_bets, has_won
+from common.utils import Bet, store_bets, load_bets, has_won
 from .listener import Listener
 
 
