@@ -3,6 +3,7 @@ package common
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -80,24 +81,28 @@ func (c *Client) StartClientLoop() {
 		fmt.Fprintf(c.conn, "[CLIENT %v] Message N°%v\n", c.config.ID, msgID)
 
 		// Read echo
-		msg, err := bufio.NewReader(c.conn).ReadString('\n')
-		c.conn.Close()
-
+		msg, err :=  bufio.NewReader(c.conn).ReadString('\n')
+		
 		if err != nil {
-			if c.shutdownRequested {
-				break
+			// Check if server closed the connection gracefully
+			if err == io.EOF {
+				log.Infof("action: receive_message | result: server_shutdown | client_id: %v | msg: server closed connection",
+					c.config.ID,
+				)
+			} else {
+				log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
+					c.config.ID,
+					err,
+				)
 			}
-			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
-				c.config.ID,
-				err,
-			)
-			return
+			break
 		}
 
 		log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
 			c.config.ID,
 			msg,
 		)
+		c.conn.Close()
 
 		// Wait before next message
 		time.Sleep(c.config.LoopPeriod)
