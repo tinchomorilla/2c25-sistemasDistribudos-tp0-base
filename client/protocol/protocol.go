@@ -14,11 +14,7 @@ func SerializeMessage(message interface{}) ([]byte, error) {
 	var data []byte
 
 	switch msg := message.(type) {
-	case *BetMessage:
-		data = append(data, byte(MessageTypeBet))
-		content := fmt.Sprintf("%s|%s|%s|%s|%d", msg.Nombre, msg.Apellido, msg.Documento, msg.Nacimiento, msg.Numero)
-		data = append(data, []byte(content)...)
-
+		
 	case *BatchMessage:
 		data = append(data, byte(MessageTypeBatch))
 		content := fmt.Sprintf("%d|%d|%d", msg.Agency, boolToInt(msg.EOF), len(msg.Bets))
