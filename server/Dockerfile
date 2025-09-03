@@ -1,17 +1,14 @@
 FROM python:3.9.7-slim
 
-# Create app directory structure
-WORKDIR /app
-
-# Copy files maintaining directory structure
-COPY server/main.py /app/
-COPY server/common/ /app/common/
-COPY server/server/ /app/server/
-COPY server/protocol/ /app/protocol/
-COPY server/tests/ /app/tests/
+# Copy files maintaining directory structure  
+COPY server/main.py /main.py
+COPY server/common/ /common/
+COPY server/server/ /server/
+COPY server/protocol/ /protocol/
+COPY server/tests/ /tests/
 
 # Set Python path
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/
 
 # Run tests
 RUN python -m unittest tests/test_common.py
