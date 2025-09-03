@@ -56,7 +56,10 @@ func (f *FileManager) NextRecord() (protocol.BetMessage, bool, error) {
 }
 
 func (f *FileManager) Close() {
-	_ = f.file.Close()
+	err := f.file.Close()
+	if err != nil {
+		_= fmt.Errorf("failed to close file | %v", err)
+	}
 }
 
 // createValidBetMessage validates a CSV record and creates a BetMessage
