@@ -68,7 +68,6 @@ func (c *Client) createClientSocket() error {
 
 // StartClientLoop Send messages until threshold or shutdown signal
 func (c *Client) StartClientLoop() {
-	defer c.conn.Close()
 	for msgID := 1; msgID <= c.config.LoopAmount; msgID++ {
 		if c.shutdownRequested {
 			break
@@ -77,6 +76,8 @@ func (c *Client) StartClientLoop() {
 		if err := c.createClientSocket(); err != nil {
 			return
 		}
+		
+		defer c.conn.Close()
 
 		// Send message
 		fmt.Fprintf(c.conn, "[CLIENT %v] Message N°%v\n", c.config.ID, msgID)
