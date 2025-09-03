@@ -41,12 +41,9 @@ class Server:
             try:
                 client_sock = self.__accept_new_connection()
                 if client_sock and not self._shutdown_requested:
-                    # Track active connections
-                    self._active_connections.append(client_sock)
-
                     self.__handle_client_connection(client_sock)
+                    self._client_socket = client_sock # Track active connection
 
-                    self._client_socket = client_sock
 
             except socket.error:
                 # Server socket was likely closed due to shutdown
