@@ -12,7 +12,7 @@ class Server:
         self._server_socket.listen(listen_backlog)
 
         # Track active connections for graceful shutdown
-        self._active_connections = []
+        self._client_socket = None
         self._shutdown_requested = False
 
         # Set up signal handler for graceful shutdown
@@ -26,6 +26,7 @@ class Server:
         # Close server socket to stop accepting new connections
         try:
             self._server_socket.close()
+            self._cleanup_connections()
             logging.info(
                 "action: shutdown | result: success | msg: server socket closed"
             )
@@ -45,9 +46,7 @@ class Server:
 
                     self.__handle_client_connection(client_sock)
 
-                    # Remove connection once handled
-                    if client_sock in self._active_connections:
-                        self._active_connections.remove(client_sock)
+                    self._client_socket = client_sock
 
             except socket.error:
                 # Server socket was likely closed due to shutdown
@@ -61,8 +60,6 @@ class Server:
                 if not self._shutdown_requested:
                     logging.error(f"action: server_loop | result: fail | error: {e}")
 
-        # Final cleanup once loop exits
-        self._cleanup_connections()
         logging.info("action: shutdown | result: success | msg: graceful shutdown completed")
 
     def __handle_client_connection(self, client_sock):
@@ -89,14 +86,13 @@ class Server:
         return c
 
     def _cleanup_connections(self):
-        """Close all active client connections"""
-        
-        connections_to_close = self._active_connections.copy()
-        self._active_connections.clear()
+        """Close active connection if exists"""
 
-        for client_sock in connections_to_close:
+        # Close the currently active client connection, if it exists
+        if self._client_socket:
             try:
-                client_sock.close()
+                self._client_socket.shutdown(socket.SHUT_RDWR)
+                self._client_socket.close()
                 logging.info(
                     "action: shutdown | result: success | msg: client connection closed"
                 )
@@ -104,3 +100,4 @@ class Server:
                 logging.error(
                     f"action: shutdown | result: fail | msg: error closing client connection | error: {e}"
                 )
+            self._client_socket = None
