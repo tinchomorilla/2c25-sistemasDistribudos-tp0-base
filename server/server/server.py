@@ -1,12 +1,11 @@
 import socket
 import logging
-import signal
 import os
 import threading
-from .protocol import (
+from ..protocol.protocol import (
     send_response,
 )
-from .utils import Bet, store_bets, load_bets, has_won
+from ..common.utils import Bet, store_bets, load_bets, has_won
 from .listener import Listener
 
 
@@ -16,9 +15,6 @@ class Server:
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.bind(("", port))
         self._server_socket.listen(listen_backlog)
-
-        # Shutdown flag
-        self._shutdown_requested = False
 
         # File access lock for thread-safe wrappers around utils functions
         self._file_lock = threading.Lock()
@@ -40,25 +36,6 @@ class Server:
             f"action: config | result: success | expected_agencies: {self._expected_agencies}"
         )
 
-        # Set up signal handler for graceful shutdown
-        signal.signal(signal.SIGTERM, self._signal_handler)
-
-    def _signal_handler(self, signum, frame):
-        """Handle SIGTERM signal for graceful shutdown"""
-        logging.info("action: shutdown | result: in_progress | msg: received SIGTERM")
-        self._shutdown_requested = True
-
-        # Close server socket to stop accepting new connections
-        try:
-            self._server_socket.close()
-            logging.info(
-                "action: shutdown | result: success | msg: server socket closed"
-            )
-        except Exception as e:
-            logging.error(
-                f"action: shutdown | result: fail | msg: error closing server socket | error: {e}"
-            )
-
     def run(self):
         """Main server entry point - delegates to the listener"""
         # Create server callbacks for the client handlers
@@ -67,10 +44,9 @@ class Server:
             "handle_get_winners_message": self._handle_get_winners_message,
         }
 
-        # Create and start the listener
+        # Create and start the listener (now handles shutdown internally)
         listener = Listener(
             server_socket=self._server_socket,
-            shutdown_callback=lambda: self._shutdown_requested,
             server_callbacks=server_callbacks,
         )
 
