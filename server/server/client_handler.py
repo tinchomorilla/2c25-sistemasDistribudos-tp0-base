@@ -2,7 +2,7 @@ import socket
 import logging
 import threading
 from threading import Thread
-from .protocol import (
+from ..protocol.protocol import (
     read_packet_from,
     send_response,
     MESSAGE_TYPE_BATCH,

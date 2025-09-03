@@ -1,8 +1,3 @@
-import socket
-import struct
-
-BUFFER_SIZE = 4096
-
 # Message types (matching Go client)
 MESSAGE_TYPE_BET = 1
 MESSAGE_TYPE_BATCH = 2
@@ -20,6 +15,26 @@ class BetMessage:
         self.documento = documento
         self.nacimiento = nacimiento
         self.numero = numero
+
+    @classmethod
+    def from_data(cls, data):
+        """Parse bet message from custom protocol data"""
+        if len(data) < 1 or data[0] != MESSAGE_TYPE_BET:
+            raise ValueError("Invalid bet message")
+
+        content = data[1:].decode("utf-8")
+        parts = content.split("|")
+
+        if len(parts) < 5:
+            raise ValueError("Invalid bet message format")
+
+        return cls(
+            nombre=parts[0],
+            apellido=parts[1],
+            documento=parts[2],
+            nacimiento=parts[3],
+            numero=int(parts[4]),
+        )
 
 
 class BatchMessage:
@@ -91,70 +106,3 @@ class ResponseMessage:
         self.success = success
         self.error = error
         self.winners = winners or []
-
-
-def read_packet_from(client_socket):
-    """Read length-prefixed packet and parse message"""
-    # Read length prefix (4 bytes)
-    length_data = _read_exact(client_socket, 4)
-    length = int.from_bytes(length_data, byteorder='big')
-
-    # Read message data
-    data = _read_exact(client_socket, length)
-
-    # Parse based on message type
-    if len(data) < 1:
-        raise ValueError("Empty message")
-
-    msg_type = data[0]
-
-    if msg_type == MESSAGE_TYPE_BATCH:
-        return BatchMessage.from_data(data)
-    elif msg_type == MESSAGE_TYPE_GET_WINNERS:
-        return GetWinnersMessage.from_data(data)
-    else:
-        raise ValueError(f"Unknown message type: {msg_type}")
-
-
-def send_response(client_socket, success, error=None, winners=None):
-    """Send response message using custom protocol"""
-    # Build response data
-    data = bytearray()
-    data.append(MESSAGE_TYPE_RESPONSE)
-
-    # Add success flag
-    data.extend(("1" if success else "0").encode("utf-8"))
-    data.extend(b"|")
-
-    # Add error if present
-    if error:
-        data.extend(error.encode("utf-8"))
-    data.extend(b"|")
-
-    # Add winners if present
-    if winners:
-        data.extend(str(len(winners)).encode("utf-8"))
-        data.extend(b"|")
-        for winner in winners:
-            data.extend(winner.encode("utf-8"))
-            data.extend(b"|")
-    else:
-        data.extend(b"0|")
-
-    # Send length-prefixed message
-    length = len(data)
-    length_bytes = length.to_bytes(4, byteorder='big')
-
-    client_socket.send(length_bytes)
-    client_socket.send(data)
-
-
-def _read_exact(sock, n):
-    """Read exactly n bytes from socket"""
-    data = b""
-    while len(data) < n:
-        chunk = sock.recv(n - len(data))
-        if not chunk:
-            raise RuntimeError("Socket connection broken")
-        data += chunk
-    return data
