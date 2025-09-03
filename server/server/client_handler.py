@@ -27,73 +27,132 @@ class ClientHandler(Thread):
         self.client_address = client_address
         self.server_callbacks = server_callbacks
 
+        self._shutdown_requested = False
+
+    def request_shutdown(self):
+        """Request graceful shutdown of this handler"""
+        self._shutdown_requested = True
+        try:
+            # Close connection with client
+            self.client_socket.close()
+        except Exception as e:
+            self._log_action("close_connection", "fail", level=logging.ERROR, error=e)
+
     def run(self):
         """Handle persistent communication with a client"""
         try:
-            addr = self.client_address
-
-            # Keep connection open for multiple messages
-            while True:
-                try:
-                    message = read_packet_from(self.client_socket)
-
-                    # Route message based on type
-                    if message.type == MESSAGE_TYPE_BATCH:
-                        self.server_callbacks["handle_batch_message"](message)
-                    elif message.type == MESSAGE_TYPE_GET_WINNERS:
-                        # Try to get winners 
-                        success = self.server_callbacks["handle_get_winners_message"](
-                            message, self.client_socket
-                        )
-
-                        # Only break if we successfully sent winners
-                        if success:
-                            logging.info(
-                                f"action: client_session_complete | result: success | ip: {addr[0]} | agency: {message.agency}"
-                            )
-                            break
-                        # If lottery not ready, continue the loop to wait for more messages
-                    else:
-                        raise ValueError(f"Unsupported message type: {message.type}")
-
-                except socket.error as e:
-                    # Client disconnected or connection error
-                    logging.info(
-                        f"action: client_disconnected | result: success | ip: {addr[0]} | reason: {e}"
-                    )
-                    break
-                except ValueError as e:
-                    # Invalid message format or data
-                    logging.error(
-                        f"action: receive_message | result: fail | ip: {addr[0]} | error: {e}"
-                    )
-                    send_response(self.client_socket, success=False, error=str(e))
-                    break
-                except Exception as e:
-                    # Check if this is a connection-related error (common when client disconnects)
-                    error_msg = str(e).lower()
-                    if any(
-                        keyword in error_msg
-                        for keyword in ["connection", "broken", "reset", "closed"]
-                    ):
-                        logging.info(
-                            f"action: client_disconnected | result: success | ip: {addr[0]} | reason: {e}"
-                        )
-                    else:
-                        # Other errors (storage, etc.)
-                        logging.error(
-                            f"action: receive_message | result: fail | ip: {addr[0]} | error: {e}"
-                        )
-                        send_response(
-                            self.client_socket,
-                            success=False,
-                            error="Internal server error",
-                        )
-                    break
-
-        except Exception as e:
-            logging.error(
-                f"action: client_connection | result: fail | ip: {addr[0] if 'addr' in locals() else 'unknown'} | error: {e}"
-            )
+            self._handle_client_communication()
         finally:
+            self._cleanup_connection()
+
+    def _handle_client_communication(self):
+        """Main communication loop with the client"""
+        while not self._shutdown_requested:
+            try:
+                message = read_packet_from(self.client_socket)
+
+                session_completed = self._process_message(message)
+                if session_completed:
+                    break
+
+            except socket.error as e:
+                self._log_action("socket_error", "connection_closed", error=e)
+                break
+            except ValueError as e:
+                self._log_action(
+                    "receive_message", "fail", level=logging.ERROR, error=e
+                )
+                self._send_error_response(str(e))
+            except Exception as e:
+                self._log_action(
+                    "receive_message", "fail", level=logging.ERROR, error=e
+                )
+                self._send_error_response("Internal server error")
+
+    def _process_message(self, message):
+        """
+        Process a received message and return whether the session is complete.
+
+        Returns:
+            bool: True if the client session is complete, False otherwise
+        """
+        if message.type == MESSAGE_TYPE_BATCH:
+            self.server_callbacks["handle_batch_message"](message)
+            return False
+
+        elif message.type == MESSAGE_TYPE_GET_WINNERS:
+            return self._handle_get_winners_message(message)
+
+        else:
+            self._log_action(
+                "process_message",
+                "fail",
+                level=logging.ERROR,
+                error=f"Unknown message type: {message.type}",
+            )
+            return False
+
+    def _handle_get_winners_message(self, message):
+        """
+        Handle get winners message processing.
+
+        Returns:
+            bool: True if winners were successfully sent, False otherwise
+        """
+        success = self.server_callbacks["handle_get_winners_message"](
+            message, self.client_socket
+        )
+
+        if success:
+            self._log_action(
+                "client_session_complete",
+                "success",
+                extra_fields={"agency": message.agency},
+            )
+
+        return success
+
+    def _log_action(
+        self, action, result, level=logging.INFO, error=None, extra_fields=None
+    ):
+        """
+        Centralized logging function for consistent log format
+
+        Args:
+            action: The action being performed
+            result: The result of the action (success, fail, etc.)
+            level: Logging level (INFO, ERROR, DEBUG, etc.)
+            error: Optional error information
+            extra_fields: Optional dict with additional fields to log
+        """
+        client_ip = self.client_address[0]
+        log_parts = [f"action: {action}", f"result: {result}", f"ip: {client_ip}"]
+
+        if error:
+            log_parts.append(f"error: {error}")
+
+        if extra_fields:
+            for key, value in extra_fields.items():
+                log_parts.append(f"{key}: {value}")
+
+        log_message = " | ".join(log_parts)
+        logging.log(level, log_message)
+
+    def _send_error_response(self, error_message):
+        """Send error response to client"""
+        try:
+            send_response(self.client_socket, success=False, error=error_message)
+        except Exception as e:
+            self._log_action(
+                "send_error_response", "fail", level=logging.ERROR, error=e
+            )
+
+    def _cleanup_connection(self):
+        """Clean up client connection"""
+        try:
             self.client_socket.close()
+        except Exception as e:
+            # Socket possibly already closed
+            self._log_action(
+                "cleanup_connection", "already_closed", level=logging.DEBUG
+            )
