@@ -1,6 +1,7 @@
 package client
 
 import (
+	"math"
 	"net"
 	"time"
 
@@ -31,22 +32,29 @@ func (l *Listener) RequestWinners(shutdownChan <-chan struct{}) {
 	l.log.Infof("action: request_winners | result: in_progress | client_id: %v | msg: waiting for lottery", l.clientID)
 
 	const maxRetries = 10
-	const retryDelay = 5 * time.Second
+	const baseDelay = 1 * time.Second
+	const maxDelay = 30 * time.Second
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 
 		select {
 		case <-shutdownChan:
 			l.log.Infof("action: request_winners | result: shutdown_during_recv | client_id: %v", l.clientID)
-			return 
+			return
 		default:
-			
+
 		}
 
 		l.log.Infof("action: request_winners | result: in_progress | attempt: %d | client_id: %v", attempt, l.clientID)
 
 		if attempt > 1 {
-			time.Sleep(retryDelay)
+			backoffFactor := math.Pow(2, float64(attempt-2)) // 2^(attempt-2)
+			delay := time.Duration(backoffFactor) * baseDelay
+			if delay > maxDelay {
+				delay = maxDelay
+			}
+			l.log.Infof("action: request_winners | result: waiting | delay: %v | client_id: %v", delay, l.clientID)
+			time.Sleep(delay)
 		}
 
 		// Use existing connection for this attempt
