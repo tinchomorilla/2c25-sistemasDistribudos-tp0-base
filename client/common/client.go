@@ -28,8 +28,8 @@ type ClientConfig struct {
 
 // Client Entity that encapsulates how
 type Client struct {
-	config            ClientConfig
-	conn              net.Conn
+	config ClientConfig
+	conn   net.Conn
 }
 
 // NewClient Initializes a new client receiving the configuration
@@ -69,12 +69,11 @@ func (c *Client) createClientSocket() error {
 
 // StartClientLoop Send bet messages until threshold or shutdown signal
 func (c *Client) StartClientLoop() {
-	defer c.conn.Close()
-
 	if err := c.createClientSocket(); err != nil {
 		log.Errorf("action: create_socket | result: fail | client_id: %v | error: %v", c.config.ID, err)
-		
+		return
 	}
+	defer c.conn.Close()
 
 	// Create bet message
 	betMessage := NewBetMessage(
@@ -107,7 +106,7 @@ func (c *Client) StartClientLoop() {
 				c.config.ID,
 				err,
 			)
-		} 
+		}
 		return
 	}
 
@@ -124,5 +123,5 @@ func (c *Client) StartClientLoop() {
 			response.Error,
 		)
 	}
-	
+
 }
