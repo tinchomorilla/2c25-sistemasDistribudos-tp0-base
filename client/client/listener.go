@@ -53,7 +53,7 @@ func (l *Listener) RequestWinners(shutdownChan <-chan struct{}) {
 			if delay > maxDelay {
 				delay = maxDelay
 			}
-			l.log.Infof("action: request_winners | result: waiting | delay: %v | client_id: %v", delay, l.clientID)
+			l.log.Infof("action: request_winners | result: in_progress | delay: %v | client_id: %v", delay, l.clientID)
 			time.Sleep(delay)
 		}
 
