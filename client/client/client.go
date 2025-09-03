@@ -30,7 +30,7 @@ type ClientConfig struct {
 type Client struct {
 	config            ClientConfig
 	conn              net.Conn
-	shutdownRequested bool
+	shutdownChan      chan struct{} 
 	writer            *Writer
 	listener          *Listener
 	fileManager       *FileManager
@@ -38,7 +38,10 @@ type Client struct {
 
 // NewClient Initializes a new client receiving the configuration
 func NewClient(config ClientConfig) *Client {
-	client := &Client{config: config}
+	client := &Client{
+		config:       config,
+		shutdownChan: make(chan struct{}), 
+	}
 
 	// Setup signal handler for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -48,12 +51,12 @@ func NewClient(config ClientConfig) *Client {
 	go func() {
 		<-sigChan
 		log.Infof("action: shutdown | result: in_progress | client_id: %v | msg: received SIGTERM", client.config.ID)
-		client.shutdownRequested = true
 
-		if client.conn != nil {
-			client.conn.Close()
-			log.Infof("action: shutdown | result: success | client_id: %v | msg: socket closed", client.config.ID)
-		}
+		// Closing the channel notifies the receivers 
+		// we have to shutdown the program
+		close(client.shutdownChan)
+
+		log.Infof("action: shutdown | result: signal_sent | client_id: %v", client.config.ID)
 	}()
 
 	// Initialize client components
@@ -102,14 +105,19 @@ func (c *Client) createClientSocket() error {
 
 // StartClientWithCSV processes CSV file in streaming mode without loading all records in memory
 func (c *Client) StartClientWithCSV() {
-	defer c.conn.Close()
-	defer c.fileManager.Close()
+	defer c.conn.Close() // Close the connection
+	defer c.fileManager.Close() // Close the file
+
 	var currentBatch []protocol.BetMessage
 	validCount := 0
 
 	for {
-		if c.shutdownRequested {
-			break
+		select {
+		case <-c.shutdownChan:
+			log.Infof("action: shutdown_received | result: exiting_loop | client_id: %v", c.config.ID)
+			return
+		default:
+			
 		}
 
 		// Check if we've reached the maximum number of valid records
@@ -138,22 +146,25 @@ func (c *Client) StartClientWithCSV() {
 			// Start new batch with current bet
 			currentBatch = []protocol.BetMessage{bet}
 		} else {
-			// Add to current batch
+			// Add to current batch cause it doesn't exceed limits
 			currentBatch = testBatch
 		}
 
 		validCount++
 	}
 
-	if len(currentBatch) > 0 && !c.shutdownRequested {
-		c.writer.SendBatch(currentBatch, true) // EOF = true for the last batch
+
+	if len(currentBatch) > 0 {
+		err := c.writer.SendBatch(currentBatch, true) // EOF = true for the last batch
+		if err != nil { 
+			log.Errorf("action: send_last_batch | result: fail | client_id: %v | error: %v", c.config.ID, err)
+			return // Could not send last batch
+		}
+		c.listener.RequestWinners(c.shutdownChan)
+		
+	
+		log.Infof("action: csv_streaming_finished | result: success | client_id: %v | valid_records: %d",
+			c.config.ID, validCount)
 	}
 
-	// After sending all bets with EOF, request winners
-	if !c.shutdownRequested {
-		c.listener.RequestWinners(&c.shutdownRequested)
-	}
-
-	log.Infof("action: csv_streaming_finished | result: success | client_id: %v | valid_records: %d",
-		c.config.ID, validCount)
 }

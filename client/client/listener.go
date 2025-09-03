@@ -27,15 +27,20 @@ func NewListener(conn net.Conn, agency int, clientID string) *Listener {
 }
 
 // RequestWinners requests the list of winners from the server using the existing connection
-func (l *Listener) RequestWinners(shutdownRequested *bool) {
+func (l *Listener) RequestWinners(shutdownChan <-chan struct{}) {
 	l.log.Infof("action: request_winners | result: in_progress | client_id: %v | msg: waiting for lottery", l.clientID)
 
 	const maxRetries = 10
 	const retryDelay = 5 * time.Second
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		if *shutdownRequested {
-			return
+
+		select {
+		case <-shutdownChan:
+			l.log.Infof("action: request_winners | result: shutdown_during_recv | client_id: %v", l.clientID)
+			return 
+		default:
+			
 		}
 
 		l.log.Infof("action: request_winners | result: in_progress | attempt: %d | client_id: %v", attempt, l.clientID)
@@ -45,7 +50,7 @@ func (l *Listener) RequestWinners(shutdownRequested *bool) {
 		}
 
 		// Use existing connection for this attempt
-		success := l.tryGetWinners(attempt, shutdownRequested)
+		success := l.tryGetWinners(attempt)
 
 		if success {
 			return // Successfully got winners
@@ -60,7 +65,7 @@ func (l *Listener) RequestWinners(shutdownRequested *bool) {
 }
 
 // tryGetWinners attempts to get winners using the current connection
-func (l *Listener) tryGetWinners(attempt int, shutdownRequested *bool) bool {
+func (l *Listener) tryGetWinners(attempt int) bool {
 	// Create get winners message
 	winnersMessage := protocol.NewGetWinnersMessage(l.agency)
 
@@ -74,9 +79,6 @@ func (l *Listener) tryGetWinners(attempt int, shutdownRequested *bool) bool {
 	// Wait for server response
 	var response protocol.ResponseMessage
 	if err := protocol.RecvMessage(l.conn, &response); err != nil {
-		if *shutdownRequested {
-			return false
-		}
 		l.log.Errorf("action: request_winners | result: fail | attempt: %d | client_id: %v | error: %v",
 			attempt, l.clientID, err)
 		return false
