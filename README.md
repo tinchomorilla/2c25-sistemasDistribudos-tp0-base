@@ -223,7 +223,7 @@ La solución se basa en un enfoque de **parametrización de servicios** a partir
 **Arquitectura de la solución:**
 
 - **Script principal (`generar-compose.sh`)**: Script bash que valida parámetros y delega la generación a Python
-- **Generador Python (`scripts/generate_compose.py`)**: Script que lee el archivo base, elimina servicios de cliente preexistentes y genera dinámicamente N clientes
+- **Generador Python (`scripts/generate_compose.py`)**: Script que lee el archivo base, elimina el servicio del cliente preexistente y genera dinámicamente N clientes
 
 **Aspectos destacados:**
 
@@ -368,7 +368,98 @@ Sin graceful shutdown, cuando Docker detiene containers:
 
 #### Arquitectura de la Solución
 
-**Principio de diseño**: Hacer lo mínimo e indispensable en el signal handler, usar flags para coordinar el shutdown en el flujo principal. Una vez que el flag shutdown_requested == true debe comenzar el cierre/limpieza del programa antes que finalice el thread principal.
+**Principio de diseño**: Hacer lo mínimo e indispensable en el signal handler, usar flags para coordinar el shutdown en el flujo principal. Una vez que el flag shutdown_requested == true debe comenzar el cierre/limpieza del programa antes que finalice el thread principal. 
+
+## Servidor
+
+Cuando el servidor recibe la signal **SIGTERM** se ejecuta este *handler*.  
+
+```python
+def _signal_handler(self, signum, frame):
+        """Handle SIGTERM signal for graceful shutdown"""
+        logging.info("action: shutdown | result: in_progress | msg: received SIGTERM")
+        self._shutdown_requested = True
+
+        # Close server socket to stop accepting new connections
+        try:
+            self._server_socket.close()
+            self._cleanup_connections()
+            logging.info(
+                "action: shutdown | result: success | msg: server socket closed"
+            )
+        except Exception as e:
+            logging.error(
+                f"action: shutdown | result: fail | msg: error closing server socket | error: {e}"
+            )
+```
+```python
+def _cleanup_connections(self):
+        """Close active connection if exists"""
+
+        # Close the currently active client connection, if it exists
+        if self._client_socket:
+            try:
+                self._client_socket.shutdown(socket.SHUT_RDWR)
+                self._client_socket.close()
+                logging.info(
+                    "action: shutdown | result: success | msg: client connection closed"
+                )
+            except Exception as e:
+                logging.error(
+                    f"action: shutdown | result: fail | msg: error closing client connection | error: {e}"
+                )
+            self._client_socket = None
+```
+
+Podemos observar que el flag `self._shutdown_requested` se marca en `true`, lo que permite luego al loop principal del servidor finalizar, ya que el socket principal que acepta conexiones se ha cerrado.  
+
+Por otro lado, se le notifica al cliente que la conexión ha terminado `(self._client_socket.shutdown(socket.SHUT_RDWR))`, para que luego el cliente pueda manejar esta signal del otro lado y terminar correctamente, ya que no se aceptará más el envío de mensajes.  
+
+Más adelante (en particular en el **ejercicio 8**), el manejo del *shutdown* será modificado levemente para poder notificarles a los *threads* de la signal **SIGTERM** y que puedan finalizar correctamente.  
+
+A su vez, también se tendrá en cuenta el cierre del archivo CSV, ya que ante una signal **SIGTERM**, también se debe garantizar el cierre correcto de este *file descriptor*. 
+
+## Cliente
+
+En el siguiente fragmento de código, podemos visualizar cómo, del lado del cliente, hacemos un manejo similar en cuanto a la signal **SIGTERM**.  
+
+Cerramos el socket principal, el flag `client.shutdownRequested` se cambia a `true` y, de esta forma, el programa será notificado de la signal y podrá salir correctamente del programa.
+```Go
+func NewClient(config ClientConfig) *Client {
+	client := &Client{config: config}
+
+	// Setup signal handler for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+
+	go func() {
+		<-sigChan
+		log.Infof("action: shutdown | result: in_progress | client_id: %v | msg: received SIGTERM", client.config.ID)
+		client.shutdownRequested = true
+
+		if client.conn != nil {
+			client.conn.Close()
+			log.Infof("action: shutdown | result: success | client_id: %v | msg: socket closed", client.config.ID)
+		}
+	}()
+
+	return client
+}
+```
+
+A su vez, en caso de que sea el **servidor** quien realice el *shutdown*, tendremos la siguiente verificación en el socket, que nos indicará si se ha cerrado el otro extremo de la conexión.  
+
+```Go
+if err == io.EOF {
+    log.Infof("action: receive_message | result: server_shutdown | client_id: %v | msg: server closed connection",
+        c.config.ID,
+    )
+}
+```
+
+
+
+
 
 ## Ejercicio 5: Protocolo de Comunicación Personalizado
 
