@@ -19,8 +19,11 @@ class Listener:
 
         self._shutdown_requested = False
 
-        # Track active client handlers for graceful shutdown
-        self._active_handlers = []
+        # Track active client handlers 
+        self._active_handlers = set()
+        self._handlers_lock = (
+            threading.Lock()
+        )  # Protect concurrent access to _active_handlers
 
         # Set up signal handler for graceful shutdown
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -52,10 +55,12 @@ class Listener:
                         client_socket=client_sock,
                         client_address=client_sock.getpeername(),
                         server_callbacks=self._server_callbacks,
+                        cleanup_callback=self._remove_handler,  # Pass cleanup callback
                     )
 
-                    # Track the handler
-                    self._active_handlers.append(client_handler)
+                    # Track the handler 
+                    with self._handlers_lock:
+                        self._active_handlers.add(client_handler)
 
                     # Start the handler thread
                     client_handler.start()
@@ -86,14 +91,34 @@ class Listener:
             "action: shutdown | result: in_progress | msg: waiting for handlers to complete"
         )
 
+        # Other threads could try to modify _active_handlers
+        # so we need to create a copy of the handlers to 
+        # avoid iteration issues during shutdown and let them
+        # finish naturally
+        with self._handlers_lock:
+            handlers_to_wait = list(self._active_handlers)
+
         # Then wait for them to complete
-        for handler in self._active_handlers:
+        for handler in handlers_to_wait:
             if handler.is_alive():
                 try:
                     # Request shutdown for the handler
                     handler.request_shutdown()
-                    handler.join() 
+                    handler.join()
                 except Exception as e:
                     logging.error(
                         f"action: shutdown | result: fail | msg: error waiting for handler | error: {e}"
                     )
+
+    def _remove_handler(self, handler):
+        """Remove a finished handler from the active handlers"""
+        try:
+            with self._handlers_lock:
+                self._active_handlers.discard(
+                    handler
+                )  
+            logging.debug(
+                f"action: remove_handler | result: success | ip: {handler.client_address[0]}"
+            )
+        except Exception as e:
+            logging.error(f"action: remove_handler | result: fail | error: {e}")
