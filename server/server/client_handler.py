@@ -33,7 +33,7 @@ class ClientHandler(Thread):
         """Request graceful shutdown of this handler"""
         self._shutdown_requested = True
         try:
-            # Close connection with client
+            self.client_socket.shutdown(socket.SHUT_RDWR) # First notify the client about the disconnection
             self.client_socket.close()
         except Exception as e:
             self._log_action("close_connection", "fail", level=logging.ERROR, error=e)
@@ -125,8 +125,7 @@ class ClientHandler(Thread):
             error: Optional error information
             extra_fields: Optional dict with additional fields to log
         """
-        client_ip = self.client_address[0]
-        log_parts = [f"action: {action}", f"result: {result}", f"ip: {client_ip}"]
+        log_parts = [f"action: {action}", f"result: {result}", f"ip: {self.client_address[0]}"]
 
         if error:
             log_parts.append(f"error: {error}")
@@ -150,6 +149,7 @@ class ClientHandler(Thread):
     def _cleanup_connection(self):
         """Clean up client connection"""
         try:
+            self.client_socket.shutdown(socket.SHUT_RDWR) # First notify the client about the disconnection
             self.client_socket.close()
         except Exception as e:
             # Socket possibly already closed
