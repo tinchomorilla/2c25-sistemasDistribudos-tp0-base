@@ -511,6 +511,184 @@ func readExact(conn net.Conn, buf []byte) (int, error) {
 - **Mantenibilidad**: Cambios en formato no afectan lógica de negocio
 - **Escalabilidad**: Fácil agregar nuevos tipos de mensaje
 
+### Ejemplo de Serialización y Deserialización
+
+Para ilustrar el proceso completo de comunicación, veamos un ejemplo paso a paso del envío de una apuesta:
+
+#### **Lado Cliente (Go) - Serialización:**
+
+```go
+// 1. Crear el mensaje de apuesta
+bet := &BetMessage{
+    Type:       MessageTypeBet,
+    Nombre:     "Santiago Lionel",
+    Apellido:   "Lorca",
+    Documento:  "30904465",
+    Nacimiento: "1999-03-17",
+    Numero:     7574,
+}
+
+// 2. Serializar a formato custom
+func SerializeMessage(message *BetMessage) ([]byte, error) {
+    data := []byte{byte(MessageTypeBet)}  // Tipo: 1 byte
+    content := fmt.Sprintf("%s|%s|%s|%s|%d",
+        bet.Nombre, bet.Apellido, bet.Documento, bet.Nacimiento, bet.Numero)
+    data = append(data, []byte(content)...)
+    return data, nil
+}
+// Resultado: [1]Santiago Lionel|Lorca|30904465|1999-03-17|7574
+
+// 3. Enviar con length-prefix
+func SendMessage(conn net.Conn, message *BetMessage) error {
+    data, _ := SerializeMessage(message)
+
+    // Calcular y enviar longitud (4 bytes big-endian)
+    length := uint32(len(data))  // length = 51 bytes
+    lengthBytes := make([]byte, 4)
+    binary.BigEndian.PutUint32(lengthBytes, length)
+    conn.Write(lengthBytes)      // [0, 0, 0, 51]
+
+    // Enviar datos del mensaje
+    conn.Write(data)             // [1]Santiago Lionel|Lorca|30904465|1999-03-17|7574
+    return nil
+}
+```
+
+#### **Lado Servidor (Python) - Deserialización:**
+
+```python
+# 1. Leer length-prefix
+def read_packet_from(client_socket):
+    # Leer exactamente 4 bytes para la longitud
+    length_data = _read_exact(client_socket, 4)  # [0, 0, 0, 51]
+    length = int.from_bytes(length_data, byteorder='big')  # length = 51
+
+    # Leer exactamente 'length' bytes de datos
+    data = _read_exact(client_socket, length)    # [1]Santiago Lionel|Lorca|...
+
+    # 2. Parsear según tipo de mensaje
+    msg_type = data[0]  # msg_type = 1 (MESSAGE_TYPE_BET)
+
+    if msg_type == MESSAGE_TYPE_BET:
+        return BetMessage.from_data(data)
+
+# 3. Deserializar el contenido
+class BetMessage:
+    @classmethod
+    def from_data(cls, data):
+        content = data[1:].decode('utf-8')  # "Santiago Lionel|Lorca|30904465|1999-03-17|7574"
+        parts = content.split('|')          # ["Santiago Lionel", "Lorca", "30904465", ...]
+
+        return cls(
+            type=MESSAGE_TYPE_BET,
+            nombre=parts[0],      # "Santiago Lionel"
+            apellido=parts[1],    # "Lorca"
+            documento=parts[2],   # "30904465"
+            nacimiento=parts[3],  # "1999-03-17"
+            numero=int(parts[4])  # 7574
+        )
+```
+
+#### **Prevención de Short Read/Write:**
+
+Ambos lados implementan `read_exact()` para garantizar la recepción completa:
+
+```python
+def _read_exact(sock, n):
+    """Read exactly n bytes from socket"""
+    chunks = []
+    bytes_read = 0
+    while bytes_read < n:
+        chunk = sock.recv(n - bytes_read)
+        if not chunk:  # Connection closed
+            raise RuntimeError("Socket connection broken")
+        chunks.append(chunk)
+        bytes_read += len(chunk)
+    return b"".join(chunks)
+```
+
+```go
+func readExact(conn net.Conn, buf []byte) (int, error) {
+	totalRead := 0
+	for totalRead < len(buf) {
+		n, err := conn.Read(buf[totalRead:])
+		if err != nil {
+			return totalRead, err
+		}
+		totalRead += n
+	}
+	return totalRead, nil
+}
+```
+
+#### **Protocolo Extensible: BatchMessage** (utilizado en ejercicios posteriores)
+
+**Lado Cliente (Go) - Serialización de Batch:**
+
+```go
+// 1. Crear un batch con múltiples apuestas
+batch := &BatchMessage{
+    Type:   MessageTypeBatch,
+    Agency: 1,
+    EOF:    false,
+    Bets: []BetMessage{
+        {Nombre: "Juan", Apellido: "Perez", Documento: "12345678", Nacimiento: "1990-01-01", Numero: 1234},
+        {Nombre: "Maria", Apellido: "Garcia", Documento: "87654321", Nacimiento: "1985-05-15", Numero: 5678},
+        {Nombre: "Carlos", Apellido: "Lopez", Documento: "11223344", Nacimiento: "1992-12-30", Numero: 9012},
+    },
+}
+
+// 2. Serializar BatchMessage
+func SerializeMessage(message *BatchMessage) ([]byte, error) {
+    data := []byte{byte(MessageTypeBatch)}  // Tipo: 2
+
+    // Formato: AGENCY|EOF|COUNT|BET1|BET2|BET3|...
+    content := fmt.Sprintf("%d|%d|%d", msg.Agency, boolToInt(msg.EOF), len(msg.Bets))
+    for _, bet := range msg.Bets {
+        content += fmt.Sprintf("|%s|%s|%s|%s|%d",
+            bet.Nombre, bet.Apellido, bet.Documento, bet.Nacimiento, bet.Numero)
+    }
+    data = append(data, []byte(content)...)
+    return data, nil
+}
+
+// Resultado: [2]1|0|3|Juan|Perez|12345678|1990-01-01|1234|Maria|Garcia|87654321|1985-05-15|5678|Carlos|Lopez|11223344|1992-12-30|9012
+```
+
+**Lado Servidor (Python) - Deserialización de Batch:**
+
+```python
+# 1. Leer y parsear BatchMessage
+class BatchMessage:
+    @classmethod
+    def from_data(cls, data):
+        content = data[1:].decode('utf-8')
+        parts = content.split('|')
+
+        agency = int(parts[0])      # 1
+        eof = parts[1] == '1'       # False (0)
+        bet_count = int(parts[2])   # 3
+
+        # Parsear cada apuesta (5 campos por apuesta)
+        bets = []
+        start_idx = 3
+        for i in range(bet_count):
+            if idx + 4 >= len(parts):
+                break
+            bet = BetMessage(
+                nombre=parts[start_idx],      # Juan, Maria, Carlos
+                apellido=parts[start_idx + 1], # Perez, Garcia, Lopez
+                documento=parts[start_idx + 2], # 12345678, 87654321, 11223344
+                nacimiento=parts[start_idx + 3], # 1990-01-01, 1985-05-15, 1992-12-30
+                numero=int(parts[start_idx + 4]) # 1234, 5678, 9012
+            )
+            bets.append(bet)
+            idx += 5
+
+        return cls(type=MESSAGE_TYPE_BATCH, agency=agency, eof=eof, bets=bets)
+
+```
+
 ### Conceptos de Comunicación
 
 **Length-Prefixed Protocol**: Patrón estándar que resuelve el problema de **message framing** en streams TCP. Sin delimitadores de mensaje, el receptor no sabe dónde termina un mensaje y empieza el siguiente.
@@ -734,7 +912,7 @@ def _remove_handler(self, handler):
     """Remove a finished handler from the active handlers set"""
     try:
         with self._handlers_lock:
-            self._active_handlers.discard(handler)  
+            self._active_handlers.discard(handler)
         logging.debug(f"action: remove_handler | result: success | ip: {handler.client_address[0]}")
     except Exception as e:
         logging.error(f"action: remove_handler | result: fail | error: {e}")
@@ -753,7 +931,7 @@ def request_shutdown(self):
     """Request graceful shutdown of this handler"""
     self._shutdown_requested = True
     try:
-        self.client_socket.shutdown(socket.SHUT_RDWR) 
+        self.client_socket.shutdown(socket.SHUT_RDWR)
         self.client_socket.close()
     except Exception as e:
         self._log_action("close_connection", "fail", level=logging.ERROR, error=e)
@@ -764,4 +942,3 @@ def request_shutdown(self):
 1. **Automático**: Los handlers se auto-remueven sin intervención manual del Listener
 2. **Thread-safe**: Uso de locks para operaciones concurrentes sobre `_active_handlers`
 3. **Separación de responsabilidades**: Cada handler maneja su propio cleanup
-
