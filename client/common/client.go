@@ -2,6 +2,7 @@ package common
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -197,7 +198,11 @@ func (c *Client) StartClientWithCSV() {
 		if len(currentBatch) >= c.config.BatchMaxAmount || batchSize > MAX_BATCH_SIZE_BYTES {
 			// Send current batch first
 			if len(currentBatch) > 0 {
-				c.sendBatch(currentBatch, false)
+				err := c.sendBatch(currentBatch, false)
+				if errors.Is(err, syscall.EPIPE) {
+					log.Infof("Connection closed by server (broken pipe)")
+					return 
+				}
 			}
 			// Start new batch with current bet
 			currentBatch = []BetMessage{bet}
@@ -225,9 +230,9 @@ func (c *Client) StartClientWithCSV() {
 
 
 // sendBatch sends a batch of bets to the server
-func (c *Client) sendBatch(bets []BetMessage, eof bool) {
+func (c *Client) sendBatch(bets []BetMessage, eof bool) error {
 	if err := c.createClientSocket(); err != nil {
-		return
+		return err
 	}
 	defer c.conn.Close()
 
@@ -238,9 +243,10 @@ func (c *Client) sendBatch(bets []BetMessage, eof bool) {
 	if err := SendMessage(c.conn, batchMessage); err != nil {
 		log.Errorf("action: send_batch | result: fail | client_id: %v | error: %v",
 			c.config.ID, err)
-		return
+		return err
 	}
 
+	return nil
 }
 
 // requestWinners requests the list of winners from the server
