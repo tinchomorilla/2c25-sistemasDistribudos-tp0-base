@@ -2,10 +2,14 @@ package protocol
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
+	"syscall"
+
 	"github.com/tinchomorilla/2c25-sistemasDistribudos-tp0-base/client/common"
 )
 
@@ -95,11 +99,17 @@ func SendMessage(conn net.Conn, message interface{}) error {
 	binary.BigEndian.PutUint32(lengthBytes, length)
 
 	if _, err := conn.Write(lengthBytes); err != nil {
+		if errors.Is(err, syscall.EPIPE) {
+			return fmt.Errorf("error sending length: broken pipe")
+        }
 		return fmt.Errorf("error sending length: %w", err)
 	}
 
 	// Send message data
 	if _, err := conn.Write(data); err != nil {
+		if errors.Is(err, syscall.EPIPE) {
+			return fmt.Errorf("error sending data: broken pipe")
+		}
 		return fmt.Errorf("error sending data: %w", err)
 	}
 
@@ -108,10 +118,13 @@ func SendMessage(conn net.Conn, message interface{}) error {
 
 // RecvMessage reads length-prefixed message and deserializes
 func RecvMessage(conn net.Conn, v interface{}) error {
-	// Read length prefix
-	lengthBytes := make([]byte, common.LENGTH_PREFIX_BYTES)
+	// Read length prefix (4 bytes)
+	lengthBytes := make([]byte, 4)
 	if _, err := readExact(conn, lengthBytes); err != nil {
-		return fmt.Errorf("error reading length: %w", err)
+		if err == io.EOF {
+			return io.EOF  
+		}
+    	return fmt.Errorf("error reading length: %w", err)
 	}
 
 	length := binary.BigEndian.Uint32(lengthBytes)
@@ -119,6 +132,9 @@ func RecvMessage(conn net.Conn, v interface{}) error {
 	// Read message data
 	data := make([]byte, length)
 	if _, err := readExact(conn, data); err != nil {
+		if err == io.EOF {
+			return io.EOF // Unexpected EOF, incomplete message
+		}
 		return fmt.Errorf("error reading data: %w", err)
 	}
 
