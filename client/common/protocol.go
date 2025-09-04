@@ -2,11 +2,13 @@ package common
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // SerializeMessage converts a message to custom protocol format
@@ -94,11 +96,17 @@ func SendMessage(conn net.Conn, message interface{}) error {
 	binary.BigEndian.PutUint32(lengthBytes, length)
 
 	if _, err := conn.Write(lengthBytes); err != nil {
+		if errors.Is(err, syscall.EPIPE) {
+			return fmt.Errorf("error sending length: broken pipe")
+        }
 		return fmt.Errorf("error sending length: %w", err)
 	}
 
 	// Send message data
 	if _, err := conn.Write(data); err != nil {
+		if errors.Is(err, syscall.EPIPE) {
+			return fmt.Errorf("error sending data: broken pipe")
+		}
 		return fmt.Errorf("error sending data: %w", err)
 	}
 
