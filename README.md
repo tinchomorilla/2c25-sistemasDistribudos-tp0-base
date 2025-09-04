@@ -653,7 +653,7 @@ El ejercicio transforma el servidor de **conexiones por mensaje** a **conexiones
 **Ahora (Ejercicio 8)**:
 
 - Una conexión por cliente durante toda la sesión
-- Cliente: conectar → enviar batches + consultar ganadores → desconectar
+- Cliente: conectar → enviar batches + consultar ganadores  (politica de retries) → desconectar
 - Reutilización de conexión TCP
 
 ### Refactorización de la Arquitectura del Servidor
@@ -698,22 +698,10 @@ success = self.server_callbacks["handle_get_winners_message"](message, socket)
 
 ### ¿Por qué Multithreading?
 
-El factor más importante de por qué decidí utilizarlo fue por familiaridad con la herramienta en Python. En un contexto más real o en donde el cómputo sea más intensivo...se utilizaría multi-processing para tener procesos separados y no tener los recursos del multicore limitados. Pero para el caso de nuestro trabajo práctico no es necesario
+El factor más importante de por qué decidí utilizarlo fue por la familiaridad con la herramienta en Python. En un contexto en donde el cómputo sea intensivo y hacer uso del multicore sea necesario, se utilizaría multi-processing. Aunque hay que destacar que crear procesos es más pesado que crear threads. Por lo que hay que tener en cuenta el scope del problema para utilizar una herramienta u otra.
 
-### Thread Safety con Wrappers
+Por otro lado, mientras actualmente el cliente hace un estilo de polling incremental para consultar los ganadores, otra opción superadora para este caso hubiese sido utilizar barriers. El cliente, por su lado, solo tendría que ejecutar una única request, y el servidor, sabiendo si se ha sorteado o no la lotería, dejará que la request de la agencia (cliente) avance o no. Si la lotería se ha realizado, dejará que la request avance y le devolverá los ganadores; si no, deberá esperar hasta que se realice el sorteo. De esta forma, se minimiza el envío de requests en la red y se administran mejor los recursos de los servicios.
 
-Para mantener `utils.py` en su estado original y agregar thread-safety externamente, se implementaron wrappers:
+En conclusión, si bien la última opción puede resultar superadora, considero que, para el scope de este trabajo práctico, no es necesaria su implementación
 
-```python
-# Lock para operaciones de archivo
-self._file_operations_lock = threading.Lock()
 
-# Wrappers thread-safe
-def _thread_safe_store_bets(self, bets):
-    with self._file_operations_lock:
-        store_bets(bets)
-
-def _thread_safe_load_bets(self):
-    with self._file_operations_lock:
-        return list(load_bets())
-```
