@@ -270,10 +270,12 @@ func (c *Client) requestWinners() {
 				attempt, c.config.ID, err)
 			continue
 		}
-
-		// Ensure connection is closed when we're done with this attempt
-		success := c.tryGetWinners(attempt)
-		c.conn.Close()
+		defer c.conn.Close()
+		success, err := c.tryGetWinners(attempt)
+		if errors.Is(err, syscall.EPIPE) {
+			log.Infof("Connection closed by server (broken pipe)")
+			return 
+		}
 
 		if success {
 			return // Successfully got winners
@@ -288,7 +290,7 @@ func (c *Client) requestWinners() {
 }
 
 // tryGetWinners attempts to get winners using the current connection
-func (c *Client) tryGetWinners(attempt int) bool {
+func (c *Client) tryGetWinners(attempt int) (bool, error) {
 	// Create get winners message
 	winnersMessage := NewGetWinnersMessage(c.config.Agency)
 
@@ -296,18 +298,15 @@ func (c *Client) tryGetWinners(attempt int) bool {
 	if err := SendMessage(c.conn, winnersMessage); err != nil {
 		log.Errorf("action: request_winners | result: fail | attempt: %d | client_id: %v | error: %v",
 			attempt, c.config.ID, err)
-		return false
+		return false, err
 	}
 
 	// Wait for server response
 	var response ResponseMessage
 	if err := RecvMessage(c.conn, &response); err != nil {
-		if c.shutdownRequested {
-			return false
-		}
 		log.Errorf("action: request_winners | result: fail | attempt: %d | client_id: %v | error: %v",
 			attempt, c.config.ID, err)
-		return false
+		return false, err
 	}
 
 	// Check server response
@@ -315,11 +314,11 @@ func (c *Client) tryGetWinners(attempt int) bool {
 		// Success! Print amount of winners
 		log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d",
 			len(response.Winners))
-		return true
+		return true, nil
 	} else {
 		// Server returned an error (probably lottery not ready yet)
 		log.Infof("action: request_winners | result: retry | attempt: %d | client_id: %v | error: %v",
 			attempt, c.config.ID, response.Error)
-		return false
+		return false, nil
 	}
 }
