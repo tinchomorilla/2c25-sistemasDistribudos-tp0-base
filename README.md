@@ -653,7 +653,7 @@ El ejercicio transforma el servidor de **conexiones por mensaje** a **conexiones
 **Ahora (Ejercicio 8)**:
 
 - Una conexión por cliente durante toda la sesión
-- Cliente: conectar → enviar batches + consultar ganadores  (politica de retries) → desconectar
+- Cliente: conectar → enviar batches + consultar ganadores (politica de retries) → desconectar
 - Reutilización de conexión TCP
 
 ### Refactorización de la Arquitectura del Servidor
@@ -704,4 +704,64 @@ Por otro lado, mientras actualmente el cliente hace un estilo de polling increme
 
 En conclusión, si bien la última opción puede resultar superadora, considero que, para el scope de este trabajo práctico, no es necesaria su implementación
 
+### Graceful Shutdown Mejorado con Cleanup Callback
+
+#### Problema del Tracking Manual de Threads
+
+En versiones anteriores, el `Listener` tenía que mantener manualmente una lista de handlers activos/inactivos para el shutdown graceful. Es decir, si un thread finalizaba, la lista seguia manteniendo a ese thread ya finalizado.
+
+#### Solución: Cleanup Callback
+
+Se implementó un **mecanismo de callback automático** donde los handlers se auto-remueven de la lista cuando terminan:
+
+```python
+def run(self):
+    try:
+        self._handle_client_communication()
+    finally:
+        self._cleanup_connection()
+        if self.cleanup_callback:
+            try:
+                self.cleanup_callback(self)
+            except Exception as e:
+                self._log_action("cleanup_callback", "fail", level=logging.ERROR, error=e)
+```
+
+#### Implementación del Listener con Callback
+
+```python
+def _remove_handler(self, handler):
+    """Remove a finished handler from the active handlers set"""
+    try:
+        with self._handlers_lock:
+            self._active_handlers.discard(handler)  
+        logging.debug(f"action: remove_handler | result: success | ip: {handler.client_address[0]}")
+    except Exception as e:
+        logging.error(f"action: remove_handler | result: fail | error: {e}")
+```
+
+#### Graceful Shutdown con SIGTERM
+
+Cuando el `Listener` recibe una señal `SIGTERM`, ejecuta el siguiente proceso:
+
+1. **Cierre del socket servidor**: Para de aceptar nuevas conexiones
+2. **Notificación a handlers activos**: Cada handler recibe `request_shutdown()`
+3. **Cleanup de conexiones**: Cada handler ejecuta su cleanup individual
+
+```python
+def request_shutdown(self):
+    """Request graceful shutdown of this handler"""
+    self._shutdown_requested = True
+    try:
+        self.client_socket.shutdown(socket.SHUT_RDWR) 
+        self.client_socket.close()
+    except Exception as e:
+        self._log_action("close_connection", "fail", level=logging.ERROR, error=e)
+```
+
+#### Ventajas del Mecanismo de Callbacks
+
+1. **Automático**: Los handlers se auto-remueven sin intervención manual del Listener
+2. **Thread-safe**: Uso de locks para operaciones concurrentes sobre `_active_handlers`
+3. **Separación de responsabilidades**: Cada handler maneja su propio cleanup
 
