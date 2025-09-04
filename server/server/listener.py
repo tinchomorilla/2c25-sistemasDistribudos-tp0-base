@@ -88,11 +88,12 @@ class Listener:
 
         # Then wait for them to complete
         for handler in self._active_handlers:
-            try:
-                # Request shutdown for the handler
-                handler.request_shutdown()
-                handler.join() 
-            except Exception as e:
-                logging.error(
-                    f"action: shutdown | result: fail | msg: error waiting for handler | error: {e}"
-                )
+            if handler.is_alive():
+                try:
+                    # Request shutdown for the handler
+                    handler.request_shutdown()
+                    handler.join() 
+                except Exception as e:
+                    logging.error(
+                        f"action: shutdown | result: fail | msg: error waiting for handler | error: {e}"
+                    )
