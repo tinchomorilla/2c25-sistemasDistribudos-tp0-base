@@ -18,7 +18,7 @@ class Server:
         self._server_socket.bind(("", port))
         self._server_socket.listen(listen_backlog)
 
-       # Track active connections for graceful shutdown
+        # Track active connections for graceful shutdown
         self._client_socket = None
         self._shutdown_requested = False
 
@@ -61,7 +61,7 @@ class Server:
                 client_sock = self.__accept_new_connection()
                 if client_sock and not self._shutdown_requested:
                     self.__handle_client_connection(client_sock)
-                    self._client_socket = client_sock # Track active connection
+                    self._client_socket = client_sock  # Track active connection
             except socket.error:
                 # Server socket was likely closed due to shutdown
                 if self._shutdown_requested:
@@ -74,7 +74,9 @@ class Server:
                 if not self._shutdown_requested:
                     logging.error(f"action: server_loop | result: fail | error: {e}")
 
-        logging.info("action: shutdown | result: success | msg: graceful shutdown completed")
+        logging.info(
+            "action: shutdown | result: success | msg: graceful shutdown completed"
+        )
 
     def __handle_client_connection(self, client_sock):
         """Handle communication with a client and close socket"""
@@ -170,7 +172,7 @@ class Server:
         # Get winners for this agency
         winners = self._winners_by_agency.get(agency_id, [])
         logging.info(
-            f"action: consulta_ganadores | result: success | agency: {agency_id} | cant_ganadores: {len(winners)}"
+            f"action: respuesta_ganadores | result: success | agency: {agency_id} | cant_ganadores: {len(winners)}"
         )
 
         send_response(client_sock, success=True, winners=winners)
