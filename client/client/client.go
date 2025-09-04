@@ -1,6 +1,7 @@
 package client
 
 import (
+	"errors"
 	"net"
 	"os"
 	"os/signal"
@@ -145,7 +146,11 @@ func (c *Client) StartClientWithCSV() {
 		batchSize := c.writer.CalculateMessageSize(testBatch)
 
 		if len(testBatch) > c.config.BatchMaxAmount || batchSize > common.MAX_BATCH_SIZE_BYTES {
-			c.writer.SendBatch(currentBatch, false)
+			err := c.writer.SendBatch(currentBatch, false)
+			if errors.Is(err, syscall.EPIPE) {
+				log.Infof("Connection closed by server (broken pipe)")
+				return 
+			}
 			// Start new batch with current bet
 			currentBatch = []protocol.BetMessage{bet}
 		} else {
