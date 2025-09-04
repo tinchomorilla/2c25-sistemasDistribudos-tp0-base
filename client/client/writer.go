@@ -1,8 +1,10 @@
 package client
 
 import (
+	"errors"
 	"fmt"
 	"net"
+	"syscall"
 
 	"github.com/op/go-logging"
 	"github.com/tinchomorilla/2c25-sistemasDistribudos-tp0-base/client/common"
@@ -36,6 +38,11 @@ func (w *Writer) SendBatch(bets []protocol.BetMessage, eof bool) error {
 		err := protocol.SendMessage(w.conn, batchMessage)
 		if err == nil {
 			return nil // Batch sent successfully
+		}
+
+		if errors.Is(err, syscall.EPIPE) {
+			log.Infof("Connection closed by server (broken pipe)")
+			return err
 		}
 
 		w.log.Errorf("action: send_batch | result: fail | attempt: %d | client_id: %v | error: %v",
