@@ -10,7 +10,7 @@ from .listener import Listener
 
 
 class Server:
-    def __init__(self, port, listen_backlog):
+    def __init__(self, port, listen_backlog, expected_agencies):
         # Initialize server socket
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.bind(("", port))
@@ -30,8 +30,7 @@ class Server:
 
         self._winners_by_agency = {}  # Dict mapping agency_id -> list of winners DNIs
 
-        # Get expected number of agencies from environment variable
-        self._expected_agencies = int(os.environ.get("EXPECTED_AGENCIES", 5))
+        self._expected_agencies = expected_agencies
         logging.info(
             f"action: config | result: success | expected_agencies: {self._expected_agencies}"
         )
