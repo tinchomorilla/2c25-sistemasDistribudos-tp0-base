@@ -11,7 +11,9 @@ from protocol.protocol import (
 
 
 class ClientHandler(Thread):
-    def __init__(self, client_socket, client_address, server_callbacks):
+    def __init__(
+        self, client_socket, client_address, server_callbacks, cleanup_callback=None
+    ):
         """
         Initialize the client handler
 
@@ -21,11 +23,14 @@ class ClientHandler(Thread):
             server_callbacks: Dictionary with callback functions to server methods:
                 - handle_batch_message: callback for batch messages
                 - handle_get_winners_message: callback for get winners messages
+            cleanup_callback: Optional callback function to call when handler finishes
+                             Should accept (handler_instance) as parameter
         """
         super().__init__(daemon=True)
         self.client_socket = client_socket
         self.client_address = client_address
         self.server_callbacks = server_callbacks
+        self.cleanup_callback = cleanup_callback
 
         self._shutdown_requested = False
 
@@ -33,7 +38,9 @@ class ClientHandler(Thread):
         """Request graceful shutdown of this handler"""
         self._shutdown_requested = True
         try:
-            self.client_socket.shutdown(socket.SHUT_RDWR) # First notify the client about the disconnection
+            self.client_socket.shutdown(
+                socket.SHUT_RDWR
+            )  # First notify the client about the disconnection
             self.client_socket.close()
         except Exception as e:
             self._log_action("close_connection", "fail", level=logging.ERROR, error=e)
@@ -44,6 +51,14 @@ class ClientHandler(Thread):
             self._handle_client_communication()
         finally:
             self._cleanup_connection()
+            # Call cleanup callback to notify listener this handler is done
+            if self.cleanup_callback:
+                try:
+                    self.cleanup_callback(self)
+                except Exception as e:
+                    self._log_action(
+                        "cleanup_callback", "fail", level=logging.ERROR, error=e
+                    )
 
     def _handle_client_communication(self):
         """Main communication loop with the client"""
@@ -125,7 +140,11 @@ class ClientHandler(Thread):
             error: Optional error information
             extra_fields: Optional dict with additional fields to log
         """
-        log_parts = [f"action: {action}", f"result: {result}", f"ip: {self.client_address[0]}"]
+        log_parts = [
+            f"action: {action}",
+            f"result: {result}",
+            f"ip: {self.client_address[0]}",
+        ]
 
         if error:
             log_parts.append(f"error: {error}")
@@ -149,7 +168,9 @@ class ClientHandler(Thread):
     def _cleanup_connection(self):
         """Clean up client connection"""
         try:
-            self.client_socket.shutdown(socket.SHUT_RDWR) # First notify the client about the disconnection
+            self.client_socket.shutdown(
+                socket.SHUT_RDWR
+            )  # First notify the client about the disconnection
             self.client_socket.close()
         except Exception as e:
             # Socket possibly already closed
