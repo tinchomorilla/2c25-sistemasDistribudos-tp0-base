@@ -2,6 +2,7 @@ package common
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -119,7 +120,7 @@ func (c *Client) StartClientWithCSV() {
 
 	for {
 		if c.shutdownRequested {
-			break
+			return
 		}
 
 		// Check if we've reached the maximum number of valid records
@@ -135,7 +136,7 @@ func (c *Client) StartClientWithCSV() {
 		}
 		if err != nil {
 			log.Errorf("action: read_csv_streaming | result: fail | client_id: %v | error: %v", c.config.ID, err)
-			return
+			break
 		}
 
 		recordCount++
@@ -161,10 +162,14 @@ func (c *Client) StartClientWithCSV() {
 		testBatch := append(currentBatch, bet)
 		batchSize := c.calculateMessageSize(testBatch)
 
-		if len(currentBatch) >= c.config.BatchMaxAmount || batchSize > MAX_BATCH_SIZE_BYTES {
+		if len(testBatch) > c.config.BatchMaxAmount || batchSize > MAX_BATCH_SIZE_BYTES {
 			// Send current batch first
 			if len(currentBatch) > 0 {
-				c.sendBatch(currentBatch)
+				err := c.sendBatch(currentBatch)
+				if errors.Is(err, syscall.EPIPE) {
+					log.Infof("Connection closed by server (broken pipe)")
+					return 
+				}
 			}
 			// Start new batch with current bet
 			currentBatch = []BetMessage{bet}
@@ -211,9 +216,9 @@ func (c *Client) createClientSocket() error {
 }
 
 // sendBatch sends a batch of bets to the server
-func (c *Client) sendBatch(bets []BetMessage) {
+func (c *Client) sendBatch(bets []BetMessage) error{
 	if err := c.createClientSocket(); err != nil {
-		return
+		return err
 	}
 	defer c.conn.Close() // close connection after sending batch
 
@@ -224,18 +229,15 @@ func (c *Client) sendBatch(bets []BetMessage) {
 	if err := SendMessage(c.conn, batchMessage); err != nil {
 		log.Errorf("action: send_batch | result: fail | client_id: %v | error: %v",
 			c.config.ID, err)
-		return
+		return err
 	}
 
 	// Wait for server response
 	var response ResponseMessage
 	if err := RecvMessage(c.conn, &response); err != nil {
-		if c.shutdownRequested {
-			return
-		}
 		log.Errorf("action: receive_response | result: fail | client_id: %v | error: %v",
 			c.config.ID, err)
-		return
+		return err
 	}
 
 	// Log result based on server response
@@ -246,4 +248,6 @@ func (c *Client) sendBatch(bets []BetMessage) {
 		log.Errorf("action: apuesta_enviada | result: fail | batch_size: %v | error: %v",
 			len(bets), response.Error)
 	}
+
+	return nil
 }
