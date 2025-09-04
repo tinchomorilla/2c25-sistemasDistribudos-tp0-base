@@ -3,6 +3,7 @@ package common
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -107,9 +108,12 @@ func SendMessage(conn net.Conn, message interface{}) error {
 // RecvMessage reads length-prefixed message and deserializes
 func RecvMessage(conn net.Conn, v interface{}) error {
 	// Read length prefix (4 bytes)
-	lengthBytes := make([]byte, LENGTH_PREFIX_BYTES)
+	lengthBytes := make([]byte, 4)
 	if _, err := readExact(conn, lengthBytes); err != nil {
-		return fmt.Errorf("error reading length: %w", err)
+		if err == io.EOF {
+			return io.EOF  
+		}
+    	return fmt.Errorf("error reading length: %w", err)
 	}
 
 	length := binary.BigEndian.Uint32(lengthBytes)
@@ -117,6 +121,9 @@ func RecvMessage(conn net.Conn, v interface{}) error {
 	// Read message data
 	data := make([]byte, length)
 	if _, err := readExact(conn, data); err != nil {
+		if err == io.EOF {
+			return io.EOF // Unexpected EOF, incomplete message
+		}
 		return fmt.Errorf("error reading data: %w", err)
 	}
 
