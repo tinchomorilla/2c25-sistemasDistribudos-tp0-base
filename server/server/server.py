@@ -137,7 +137,7 @@ class Server:
         winners = self._winners_by_agency.get(agency_id, []).copy()
 
         logging.info(
-            f"action: consulta_ganadores | result: success | agency: {agency_id} | cant_ganadores: {len(winners)}"
+            f"action: respuesta_ganadores | result: success | agency: {agency_id} | cant_ganadores: {len(winners)}"
         )
 
         send_response(client_sock, success=True, winners=winners)
