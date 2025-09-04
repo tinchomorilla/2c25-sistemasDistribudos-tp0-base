@@ -504,12 +504,6 @@ func readExact(conn net.Conn, buf []byte) (int, error) {
 }
 ```
 
-**Ventajas del diseño:**
-
-- **Reutilización**: Protocol puede usarse para otros tipos de mensaje
-- **Testing**: Cada capa se puede probar independientemente
-- **Mantenibilidad**: Cambios en formato no afectan lógica de negocio
-- **Escalabilidad**: Fácil agregar nuevos tipos de mensaje
 
 ### Ejemplo de Serialización y Deserialización
 
@@ -587,38 +581,6 @@ class BetMessage:
             nacimiento=parts[3],  # "1999-03-17"
             numero=int(parts[4])  # 7574
         )
-```
-
-#### **Prevención de Short Read/Write:**
-
-Ambos lados implementan `read_exact()` para garantizar la recepción completa:
-
-```python
-def _read_exact(sock, n):
-    """Read exactly n bytes from socket"""
-    chunks = []
-    bytes_read = 0
-    while bytes_read < n:
-        chunk = sock.recv(n - bytes_read)
-        if not chunk:  # Connection closed
-            raise RuntimeError("Socket connection broken")
-        chunks.append(chunk)
-        bytes_read += len(chunk)
-    return b"".join(chunks)
-```
-
-```go
-func readExact(conn net.Conn, buf []byte) (int, error) {
-	totalRead := 0
-	for totalRead < len(buf) {
-		n, err := conn.Read(buf[totalRead:])
-		if err != nil {
-			return totalRead, err
-		}
-		totalRead += n
-	}
-	return totalRead, nil
-}
 ```
 
 #### **Protocolo Extensible: BatchMessage** (utilizado en ejercicios posteriores)
