@@ -18,7 +18,7 @@ func SerializeMessage(message interface{}) ([]byte, error) {
 	var data []byte
 
 	switch msg := message.(type) {
-		
+
 	case *BatchMessage:
 		data = append(data, byte(MessageTypeBatch))
 		content := fmt.Sprintf("%d|%d|%d", msg.Agency, boolToInt(msg.EOF), len(msg.Bets))
@@ -98,15 +98,15 @@ func SendMessage(conn net.Conn, message interface{}) error {
 	lengthBytes := make([]byte, common.LENGTH_PREFIX_BYTES)
 	binary.BigEndian.PutUint32(lengthBytes, length)
 
-	if _, err := conn.Write(lengthBytes); err != nil {
+	if err := writeExact(conn, lengthBytes); err != nil {
 		if errors.Is(err, syscall.EPIPE) {
 			return fmt.Errorf("error sending length: broken pipe")
-        }
+		}
 		return fmt.Errorf("error sending length: %w", err)
 	}
 
 	// Send message data
-	if _, err := conn.Write(data); err != nil {
+	if err := writeExact(conn, data); err != nil {
 		if errors.Is(err, syscall.EPIPE) {
 			return fmt.Errorf("error sending data: broken pipe")
 		}
@@ -122,9 +122,9 @@ func RecvMessage(conn net.Conn, v interface{}) error {
 	lengthBytes := make([]byte, 4)
 	if _, err := readExact(conn, lengthBytes); err != nil {
 		if err == io.EOF {
-			return io.EOF  
+			return io.EOF
 		}
-    	return fmt.Errorf("error reading length: %w", err)
+		return fmt.Errorf("error reading length: %w", err)
 	}
 
 	length := binary.BigEndian.Uint32(lengthBytes)
@@ -170,4 +170,20 @@ func readExact(conn net.Conn, buf []byte) (int, error) {
 		totalRead += n
 	}
 	return totalRead, nil
+}
+
+// writeExact writes exactly all bytes in data over conn
+func writeExact(conn net.Conn, data []byte) error {
+	totalWritten := 0
+	for totalWritten < len(data) {
+		n, err := conn.Write(data[totalWritten:])
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return fmt.Errorf("connection closed during write")
+		}
+		totalWritten += n
+	}
+	return nil
 }
