@@ -15,7 +15,7 @@ def read_packet_from(client_socket):
     """Read length-prefixed packet and parse message"""
     # Read length prefix (4 bytes)
     length_data = _read_exact(client_socket, 4)
-    length = int.from_bytes(length_data, byteorder='big')
+    length = int.from_bytes(length_data, byteorder="big")
     # Read message data
     data = _read_exact(client_socket, length)
 
@@ -62,10 +62,20 @@ def send_response(client_socket, success, error=None, winners=None):
 
     # Send length-prefixed message
     length = len(data)
-    length_bytes = length.to_bytes(4, byteorder='big')
+    length_bytes = length.to_bytes(4, byteorder="big")
 
-    client_socket.send(length_bytes)
-    client_socket.send(data)
+    _send_exact(client_socket, length_bytes)
+    _send_exact(client_socket, data)
+
+
+def _send_exact(sock, data):
+    """Send exactly all bytes in data (prevents short write)"""
+    total_sent = 0
+    while total_sent < len(data):
+        sent = sock.send(data[total_sent:])
+        if sent == 0:
+            raise RuntimeError("Socket connection broken")
+        total_sent += sent
 
 
 def _read_exact(sock, n):
